@@ -16,11 +16,13 @@
  * @author Wasim Abbas , www.arm.com
  */
 
+#include <assert.h>
 #include <cstring>
 #include <inttypes.h>
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <zstd.h>
 #include <KHR/khr_df.h>
 
@@ -29,14 +31,13 @@
 #include "ktxint.h"
 #include "texture2.h"
 #include "vkformat_enum.h"
-#include "vk_format.h"
 
 #include "astc-encoder/Source/astcenc.h"
-#include "../tools/toktx/image.hpp"
 
+#if !defined(_WIN32) || defined(WIN32_HAS_PTHREADS)
+#include <pthread.h>
+#else
 // Provide pthreads support on windows
-#if defined(_WIN32) && !defined(__CYGWIN__)
-
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
@@ -60,7 +61,6 @@ pthread_join(pthread_t thread, void** value) {
     WaitForSingleObject(thread, INFINITE);
     return 0;
 }
-
 #endif
 
 static astcenc_image*
@@ -211,7 +211,6 @@ static ktxAstcParams
 astcDefaultOptions() {
     ktxAstcParams params{};
     params.structSize = sizeof(params);
-    params.verbose = false;
     params.threadCount = 1;
     params.blockDimension = KTX_PACK_ASTC_BLOCK_DIMENSION_6x6;
     params.mode = KTX_PACK_ASTC_ENCODER_MODE_LDR;
@@ -333,20 +332,27 @@ astcSwizzle(const ktxAstcParams &params) {
     astcenc_swizzle swizzle{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A};
 
     std::vector<astcenc_swz*> swizzle_array{&swizzle.r, &swizzle.g, &swizzle.b, &swizzle.a};
+    std::string inputSwizzle = params.inputSwizzle;
 
-    for (int i = 0; i < 4; i++) {
-        if (params.inputSwizzle[i] == 'r')
-            *swizzle_array[i] = ASTCENC_SWZ_R;
-        else if (params.inputSwizzle[i] == 'g')
-            *swizzle_array[i] = ASTCENC_SWZ_G;
-        else if (params.inputSwizzle[i] == 'b')
-            *swizzle_array[i] = ASTCENC_SWZ_B;
-        else if (params.inputSwizzle[i] == 'a')
-            *swizzle_array[i] = ASTCENC_SWZ_A;
-        else if (params.inputSwizzle[i] == '0')
-            *swizzle_array[i] = ASTCENC_SWZ_0;
-        else if (params.inputSwizzle[i] == '1')
-            *swizzle_array[i] = ASTCENC_SWZ_1;
+    if (inputSwizzle.size() > 0) {
+        assert(inputSwizzle.size() == 4 && "InputSwizzle is invalid.");
+
+        for (int i = 0; i < 4; i++) {
+            if (inputSwizzle[i] == 'r')
+                *swizzle_array[i] = ASTCENC_SWZ_R;
+            else if (inputSwizzle[i] == 'g')
+                *swizzle_array[i] = ASTCENC_SWZ_G;
+            else if (inputSwizzle[i] == 'b')
+                *swizzle_array[i] = ASTCENC_SWZ_B;
+            else if (inputSwizzle[i] == 'a')
+                *swizzle_array[i] = ASTCENC_SWZ_A;
+            else if (inputSwizzle[i] == '0')
+                *swizzle_array[i] = ASTCENC_SWZ_0;
+            else if (inputSwizzle[i] == '1')
+                *swizzle_array[i] = ASTCENC_SWZ_1;
+        }
+    } else if (params.normalMap) {
+        return {ASTCENC_SWZ_R, ASTCENC_SWZ_R, ASTCENC_SWZ_R, ASTCENC_SWZ_G};
     }
 
     return swizzle;
@@ -612,6 +618,9 @@ ktxTexture2_CompressAstcEx(ktxTexture2* This, ktxAstcParams* params) {
     profile = astcEncoderAction(*params, BDB);
     swizzle = astcSwizzle(*params);
 
+    if(params->perceptual)
+        flags |= ASTCENC_FLG_USE_PERCEPTUAL;
+
     astcenc_config   astc_config;
     astcenc_context *astc_context;
     astcenc_error astc_error = astcenc_config_init(profile,
@@ -619,18 +628,14 @@ ktxTexture2_CompressAstcEx(ktxTexture2* This, ktxAstcParams* params) {
                                                    quality, flags,
                                                    &astc_config);
 
-    if (astc_error != ASTCENC_SUCCESS) {
-        std::cout << "ASTC config init failed with error " << astcenc_get_error_string(astc_error) << std::endl;
+    if (astc_error != ASTCENC_SUCCESS)
         return KTX_INVALID_OPERATION;
-    }
 
     astc_error  = astcenc_context_alloc(&astc_config, threadCount,
                                         &astc_context);
 
-    if (astc_error != ASTCENC_SUCCESS) {
-        std::cout << "ASTC context alloc failed with error " << astcenc_get_error_string(astc_error) << std::endl;
+    if (astc_error != ASTCENC_SUCCESS)
         return KTX_INVALID_OPERATION;
-    }
 
     // Walk in reverse on levels so we don't have to do this later
     assert(prototype->dataSize && "Prototype texture size not initialized.\n");
@@ -657,12 +662,6 @@ ktxTexture2_CompressAstcEx(ktxTexture2* This, ktxAstcParams* params) {
         ktx_size_t offset = ktxTexture2_levelDataOffset(This, level);
 
         for (uint32_t image = 0; image < levelImages; image++) {
-            if (params->verbose)
-                std::cout << "ASTC compressor: compressing image " <<
-                             (This->numLevels - level - 1) * levelImages + image + 1
-                             << " of " << This->numLevels * levelImages
-                             << std::endl;
-
             astcenc_image *input_image = nullptr;
             if (num_components == 1)
                 input_image = unorm8x1ArrayToImage(This->pData + offset,
@@ -689,21 +688,21 @@ ktxTexture2_CompressAstcEx(ktxTexture2* This, ktxAstcParams* params) {
 
             launchThreads(threadCount, compressionWorkloadRunner, &work);
 
-            if (work.error != ASTCENC_SUCCESS) {
-                std::cout << "ASTC compressor failed\n" <<
-                             astcenc_get_error_string(work.error) << std::endl;
-
-                imageFree(input_image);
-
-                astcenc_context_free(astc_context);
-                return KTX_INVALID_OPERATION;
-            }
-
             buffer_out += levelImageSizeOut;
 
             // Reset ASTC context for next image
             astcenc_compress_reset(astc_context);
             offset += levelImageSizeIn;
+
+            imageFree(input_image);
+
+            if (work.error != ASTCENC_SUCCESS) {
+                std::cout << "ASTC compressor failed\n" <<
+                             astcenc_get_error_string(work.error) << std::endl;
+
+                astcenc_context_free(astc_context);
+                return KTX_INVALID_OPERATION;
+            }
         }
     }
 
@@ -759,10 +758,6 @@ ktxTexture2_CompressAstcEx(ktxTexture2* This, ktxAstcParams* params) {
  * state.
  *
  * Such textures can be directly uploaded to a GPU via a graphics API.
- *
- * @memberof ktxTexture2
- * @ingroup writer
- * @~English
  *
  * @param[in]   This    pointer to the ktxTexture2 object of interest.
  * @param[in]   quality Compression quality, a value from 0 - 100.

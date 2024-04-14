@@ -173,14 +173,17 @@ namespace ktx
     };
 }
 
-/** @page js_bindings Javascript Bindings
+/** @mainpage
 
  Javascript bindings are provided to:
 
- @li @subpage libktx_js libktx.js
- @li @subpage msc_basis_transcoder msc_basis_transcoder.js
+ @li @subpage libktx_js "libktx (in libktx.js)"
+ @li @subpage msc_basis_transcoder "Basis Universal Transcoder (in msc_basis_transcoder.js)
 
- */
+
+ ---
+ @par This page last modified $Date$
+*/
 
 /** @page libktx_js libktx Binding
 
@@ -284,6 +287,7 @@ enum SupercmpScheme {
     "NONE",
     "BASIS_LZ",
     "ZSTD"
+    "ZLIB"
 };
 
 @endcode
@@ -427,6 +431,8 @@ EMSCRIPTEN_BINDINGS(ktx)
         .value("UNSUPPORTED_TEXTURE_TYPE", KTX_UNSUPPORTED_TEXTURE_TYPE)
         .value("UNSUPPORTED_FEATURE", KTX_UNSUPPORTED_FEATURE)
         .value("LIBRARY_NOT_LINKED", KTX_LIBRARY_NOT_LINKED)
+        .value("DECOMPRESS_LENGTH_ERROR", KTX_DECOMPRESS_LENGTH_ERROR)
+        .value("DECOMPRESS_CHECKSUM_ERROR", KTX_DECOMPRESS_CHECKSUM_ERROR)
         ;
 
     enum_<ktx_texture_transcode_fmt_e>("TranscodeTarget")
@@ -473,6 +479,7 @@ EMSCRIPTEN_BINDINGS(ktx)
         .value("NONE", KTX_SS_NONE)
         .value("BASIS_LZ", KTX_SS_BASIS_LZ)
         .value("ZSTD", KTX_SS_ZSTD)
+        .value("ZLIB", KTX_SS_ZLIB)
     ;
 
     value_object<ktxOrientation>("Orientation")

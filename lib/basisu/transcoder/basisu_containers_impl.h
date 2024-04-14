@@ -49,13 +49,15 @@ namespace basisu
 #ifdef _MSC_VER
             sprintf_s(buf, sizeof(buf), "vector: realloc() failed allocating %u bytes", (uint32_t)desired_size);
 #else
-            sprintf(buf, "vector: realloc() failed allocating %u bytes", (uint32_t)desired_size);
+            snprintf(buf, sizeof(buf), "vector: realloc() failed allocating %u bytes", (uint32_t)desired_size);
 #endif
             fprintf(stderr, "%s", buf);
             abort();
          }
 
-#ifdef _MSC_VER
+#if BASISU_VECTOR_DETERMINISTIC
+         actual_size = desired_size;
+#elif defined(_MSC_VER)
          actual_size = _msize(new_p);
 #elif HAS_MALLOC_USABLE_SIZE
          actual_size = malloc_usable_size(new_p);
@@ -76,13 +78,15 @@ namespace basisu
 #ifdef _MSC_VER
             sprintf_s(buf, sizeof(buf), "vector: malloc() failed allocating %u bytes", (uint32_t)desired_size);
 #else
-            sprintf(buf, "vector: malloc() failed allocating %u bytes", (uint32_t)desired_size);
+            snprintf(buf, sizeof(buf), "vector: malloc() failed allocating %u bytes", (uint32_t)desired_size);
 #endif
             fprintf(stderr, "%s", buf);
             abort();
          }
 
-#ifdef _MSC_VER
+#if BASISU_VECTOR_DETERMINISTIC
+         actual_size = desired_size;
+#elif defined(_MSC_VER)
          actual_size = _msize(new_p);
 #elif HAS_MALLOC_USABLE_SIZE
          actual_size = malloc_usable_size(new_p);

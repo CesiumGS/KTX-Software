@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2021 Arm Limited
+// Copyright 2011-2023 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -68,6 +68,9 @@ struct cli_config_options
 	/** @brief The number of threads to use for processing. */
 	unsigned int thread_count;
 
+	/** @brief The number of repeats to execute for benchmarking. */
+	unsigned int repeat_count;
+
 	/** @brief The number of image slices to load for a 3D image. */
 	unsigned int array_size;
 
@@ -76,6 +79,9 @@ struct cli_config_options
 
 	/** @brief @c true if the images should be y-flipped. */
 	bool y_flip;
+
+	/** @brief @c true if diagnostic images should be stored. */
+	bool diagnostic_images;
 
 	/** @brief The low exposure fstop for error computation. */
 	int low_fstop;
@@ -91,7 +97,27 @@ struct cli_config_options
 };
 
 /**
- * Functions to load image from file.
+ * @brief Print a string to stderr.
+ */
+static inline void print_error(
+	const char* format
+) {
+	fprintf(stderr, "%s", format);
+}
+
+/**
+ * @brief Print a formatted string to stderr.
+ */
+template<typename ... _Args>
+static inline void print_error(
+	const char* format,
+	_Args...args
+) {
+	fprintf(stderr, format, args...);
+}
+
+/**
+ * @brief Load uncompressed image.
  *
  * @param filename               The file path on disk.
  * @param y_flip                 Should this image be Y flipped?
@@ -107,7 +133,23 @@ astcenc_image* load_ncimage(
 	unsigned int& component_count);
 
 /**
- * @brief Save a DDS uncompressed image using a local store routine.
+ * @brief Load uncompressed PNG image.
+ *
+ * @param filename               The file path on disk.
+ * @param y_flip                 Should this image be Y flipped?
+ * @param[out] is_hdr            Is the loaded image HDR?
+ * @param[out] component_count   The number of components in the loaded image.
+ *
+ * @return The astc image file, or nullptr on error.
+ */
+astcenc_image* load_png_with_wuffs(
+	const char* filename,
+	bool y_flip,
+	bool& is_hdr,
+	unsigned int& component_count);
+
+/**
+ * @brief Save an uncompressed image.
  *
  * @param img        The source data for the image.
  * @param filename   The name of the file to save.
@@ -255,18 +297,20 @@ astcenc_image* astc_img_from_unorm8x4_array(
 	bool y_flip);
 
 /**
- * @brief Create a flattened RGBA FLOAT32 data array from an image structure.
+ * @brief Create a flattened RGBA FLOAT32 data array for a single slice from an image structure.
  *
  * The returned data array is allocated with @c new[] and must be freed with a @c delete[] call.
  *
- * @param img      The input image.
- * @param y_flip   Should the data in the array be Y flipped?
+ * @param img       The input image.
+ * @param y_flip    Should the data in the array be Y flipped?
+ * @param z_index   The slice index to convert.
  *
  * @return The data array.
  */
 float* floatx4_array_from_astc_img(
 	const astcenc_image* img,
-	bool y_flip);
+	bool y_flip,
+	unsigned int z_index);
 
 /**
  * @brief Create a flattened RGBA UNORM8 data array from an image structure.
@@ -350,5 +394,17 @@ void launch_threads(
 	int thread_count,
 	void (*func)(int, int, void*),
 	void *payload);
+
+/**
+ * @brief The main entry point.
+ *
+ * @param argc   The number of arguments.
+ * @param argv   The vector of arguments.
+ *
+ * @return 0 on success, non-zero otherwise.
+ */
+int astcenc_main(
+	int argc,
+	char **argv);
 
 #endif

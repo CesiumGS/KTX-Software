@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2021 Arm Limited
+// Copyright 2011-2023 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -22,6 +22,50 @@
 #include "astcenc_internal.h"
 
 #include <cassert>
+
+/**
+ * @brief Reverse bits in a byte.
+ *
+ * @param p   The value to reverse.
+  *
+ * @return The reversed result.
+ */
+static inline int bitrev8(int p)
+{
+	p = ((p & 0x0F) << 4) | ((p >> 4) & 0x0F);
+	p = ((p & 0x33) << 2) | ((p >> 2) & 0x33);
+	p = ((p & 0x55) << 1) | ((p >> 1) & 0x55);
+	return p;
+}
+
+
+/**
+ * @brief Read up to 8 bits at an arbitrary bit offset.
+ *
+ * The stored value is at most 8 bits, but can be stored at an offset of between 0 and 7 bits so may
+ * span two separate bytes in memory.
+ *
+ * @param         bitcount    The number of bits to read.
+ * @param         bitoffset   The bit offset to read from, between 0 and 7.
+ * @param[in,out] ptr         The data pointer to read from.
+ *
+ * @return The read value.
+ */
+static inline int read_bits(
+	int bitcount,
+	int bitoffset,
+	const uint8_t* ptr
+) {
+	int mask = (1 << bitcount) - 1;
+	ptr += bitoffset >> 3;
+	bitoffset &= 7;
+	int value = ptr[0] | (ptr[1] << 8);
+	value >>= bitoffset;
+	value &= mask;
+	return value;
+}
+
+#if !defined(ASTCENC_DECOMPRESS_ONLY)
 
 /**
  * @brief Write up to 8 bits at an arbitrary bit offset.
@@ -52,47 +96,6 @@ static inline void write_bits(
 	ptr[0] |= value;
 	ptr[1] &= mask >> 8;
 	ptr[1] |= value >> 8;
-}
-
-/**
- * @brief Read up to 8 bits at an arbitrary bit offset.
- *
- * The stored value is at most 8 bits, but can be stored at an offset of between 0 and 7 bits so may
- * span two separate bytes in memory.
- *
- * @param         bitcount    The number of bits to read.
- * @param         bitoffset   The bit offset to read from, between 0 and 7.
- * @param[in,out] ptr         The data pointer to read from.
- *
- * @return The read value.
- */
-static inline int read_bits(
-	int bitcount,
-	int bitoffset,
-	const uint8_t* ptr
-) {
-	int mask = (1 << bitcount) - 1;
-	ptr += bitoffset >> 3;
-	bitoffset &= 7;
-	int value = ptr[0] | (ptr[1] << 8);
-	value >>= bitoffset;
-	value &= mask;
-	return value;
-}
-
-/**
- * @brief Reverse bits in a byte.
- *
- * @param p   The value to reverse.
-  *
- * @return The reversed result.
- */
-static inline int bitrev8(int p)
-{
-	p = ((p & 0x0F) << 4) | ((p >> 4) & 0x0F);
-	p = ((p & 0x33) << 2) | ((p >> 2) & 0x33);
-	p = ((p & 0x55) << 1) | ((p >> 1) & 0x55);
-	return p;
 }
 
 /* See header for documentation. */
@@ -151,26 +154,43 @@ void symbolic_to_physical(
 	const auto& di = bsd.get_decimation_info(bm.decimation_mode);
 	int weight_count = di.weight_count;
 	quant_method weight_quant_method = bm.get_weight_quant_mode();
+	float weight_quant_levels = static_cast<float>(get_quant_level(weight_quant_method));
 	int is_dual_plane = bm.is_dual_plane;
+
+	const auto& qat = quant_and_xfer_tables[weight_quant_method];
 
 	int real_weight_count = is_dual_plane ? 2 * weight_count : weight_count;
 
 	int bits_for_weights = get_ise_sequence_bitcount(real_weight_count, weight_quant_method);
 
+	uint8_t weights[64];
 	if (is_dual_plane)
 	{
-		uint8_t weights[64];
 		for (int i = 0; i < weight_count; i++)
 		{
-			weights[2 * i] = scb.weights[i];
-			weights[2 * i + 1] = scb.weights[i + WEIGHTS_PLANE2_OFFSET];
+			float uqw = static_cast<float>(scb.weights[i]);
+			float qw = (uqw / 64.0f) * (weight_quant_levels - 1.0f);
+			int qwi = static_cast<int>(qw + 0.5f);
+			weights[2 * i] = qat.scramble_map[qwi];
+
+			uqw = static_cast<float>(scb.weights[i + WEIGHTS_PLANE2_OFFSET]);
+			qw = (uqw / 64.0f) * (weight_quant_levels - 1.0f);
+			qwi = static_cast<int>(qw + 0.5f);
+			weights[2 * i + 1] = qat.scramble_map[qwi];
 		}
-		encode_ise(weight_quant_method, real_weight_count, weights, weightbuf, 0);
 	}
 	else
 	{
-		encode_ise(weight_quant_method, weight_count, scb.weights, weightbuf, 0);
+		for (int i = 0; i < weight_count; i++)
+		{
+			float uqw = static_cast<float>(scb.weights[i]);
+			float qw = (uqw / 64.0f) * (weight_quant_levels - 1.0f);
+			int qwi = static_cast<int>(qw + 0.5f);
+			weights[i] = qat.scramble_map[qwi];
+		}
 	}
+
+	encode_ise(weight_quant_method, real_weight_count, weights, weightbuf, 0);
 
 	for (int i = 0; i < 16; i++)
 	{
@@ -248,13 +268,15 @@ void symbolic_to_physical(
 	// Encode the color components
 	uint8_t values_to_encode[32];
 	int valuecount_to_encode = 0;
+
+	const uint8_t* pack_table = color_uquant_to_scrambled_pquant_tables[scb.quant_mode - QUANT_6];
 	for (unsigned int i = 0; i < scb.partition_count; i++)
 	{
 		int vals = 2 * (scb.color_formats[i] >> 2) + 2;
 		assert(vals <= 8);
 		for (int j = 0; j < vals; j++)
 		{
-			values_to_encode[j + valuecount_to_encode] = scb.color_values[i][j];
+			values_to_encode[j + valuecount_to_encode] = pack_table[scb.color_values[i][j]];
 		}
 		valuecount_to_encode += vals;
 	}
@@ -262,6 +284,8 @@ void symbolic_to_physical(
 	encode_ise(scb.get_color_quant_mode(), valuecount_to_encode, values_to_encode, pcb.data,
 	           scb.partition_count == 1 ? 17 : 19 + PARTITION_INDEX_BITS);
 }
+
+#endif
 
 /* See header for documentation. */
 void physical_to_symbolic(
@@ -352,12 +376,15 @@ void physical_to_symbolic(
 	const auto& di = bsd.get_decimation_info(bm.decimation_mode);
 
 	int weight_count = di.weight_count;
-	quant_method weight_quant_method = (quant_method)bm.quant_mode;
+	promise(weight_count > 0);
+
+	quant_method weight_quant_method = static_cast<quant_method>(bm.quant_mode);
 	int is_dual_plane = bm.is_dual_plane;
 
 	int real_weight_count = is_dual_plane ? 2 * weight_count : weight_count;
 
 	int partition_count = read_bits(2, 11, pcb.data) + 1;
+	promise(partition_count > 0);
 
 	scb.block_mode = static_cast<uint16_t>(block_mode);
 	scb.partition_count = static_cast<uint8_t>(partition_count);
@@ -371,19 +398,25 @@ void physical_to_symbolic(
 
 	int below_weights_pos = 128 - bits_for_weights;
 
+	uint8_t indices[64];
+	const auto& qat = quant_and_xfer_tables[weight_quant_method];
+
+	decode_ise(weight_quant_method, real_weight_count, bswapped, indices, 0);
+
 	if (is_dual_plane)
 	{
-		uint8_t indices[64];
-		decode_ise(weight_quant_method, real_weight_count, bswapped, indices, 0);
 		for (int i = 0; i < weight_count; i++)
 		{
-			scb.weights[i] = indices[2 * i];
-			scb.weights[i + WEIGHTS_PLANE2_OFFSET] = indices[2 * i + 1];
+			scb.weights[i] = qat.unscramble_and_unquant_map[indices[2 * i]];
+			scb.weights[i + WEIGHTS_PLANE2_OFFSET] = qat.unscramble_and_unquant_map[indices[2 * i + 1]];
 		}
 	}
 	else
 	{
-		decode_ise(weight_quant_method, weight_count, bswapped, scb.weights, 0);
+		for (int i = 0; i < weight_count; i++)
+		{
+			scb.weights[i] = qat.unscramble_and_unquant_map[indices[i]];
+		}
 	}
 
 	if (is_dual_plane && partition_count == 4)
@@ -479,22 +512,26 @@ void physical_to_symbolic(
 	}
 
 	// Unpack the integer color values and assign to endpoints
-	scb.quant_mode = (quant_method)color_quant_level;
+	scb.quant_mode = static_cast<quant_method>(color_quant_level);
+
 	uint8_t values_to_decode[32];
-	decode_ise((quant_method)color_quant_level, color_integer_count, pcb.data, values_to_decode, (partition_count == 1 ? 17 : 19 + PARTITION_INDEX_BITS));
+	decode_ise(static_cast<quant_method>(color_quant_level), color_integer_count, pcb.data,
+	           values_to_decode, (partition_count == 1 ? 17 : 19 + PARTITION_INDEX_BITS));
 
 	int valuecount_to_decode = 0;
+	const uint8_t* unpack_table = color_scrambled_pquant_to_uquant_tables[scb.quant_mode - QUANT_6];
 	for (int i = 0; i < partition_count; i++)
 	{
 		int vals = 2 * (color_formats[i] >> 2) + 2;
 		for (int j = 0; j < vals; j++)
 		{
-			scb.color_values[i][j] = values_to_decode[j + valuecount_to_decode];
+			scb.color_values[i][j] = unpack_table[values_to_decode[j + valuecount_to_decode]];
 		}
 		valuecount_to_decode += vals;
 	}
 
 	// Fetch component for second-plane in the case of dual plane of weights.
+	scb.plane2_component = -1;
 	if (is_dual_plane)
 	{
 		scb.plane2_component = static_cast<int8_t>(read_bits(2, below_weights_pos - 2, pcb.data));

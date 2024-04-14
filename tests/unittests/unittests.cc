@@ -34,6 +34,7 @@ extern "C" {
 }
 #include "gtest/gtest.h"
 #include "wthelper.h"
+#include "ltexceptions.h"
 
 // These are so we can test swizzle_to_rgba. Do not put inside "namespace {"
 // as there is no "namespace {" in basis_encode.cpp where the function is
@@ -218,6 +219,8 @@ TEST_F(WriterTestHelperRGB8Test, Construct3D) {
 /////////////////////////////////////
 // Base fixture for createDFD tests.
 /////////////////////////////////////
+
+// TODO: Move DFD tests to dfdutils when build is redone with CMake.
 
 #include <KHR/khr_df.h>
 #define LIBKTX // To make dfd.h not include vulkan/vulkan_core.h.
@@ -676,8 +679,145 @@ TEST_F(createDFDCompressedTest1, FormatBC1) {
     free(dfd);
 }
 
+class DFDVkFormatListTest : public ::testing::Test {
+protected:
+    DFDVkFormatListTest() {}
 
+    static constexpr VkFormat formats[] = {
+        #include "vkformat_list.inl"
+    };
+};
 
+extern "C" const char* vkFormatString(VkFormat format);
+
+TEST_F(DFDVkFormatListTest, ReconstructDFDBytesPlane0) {
+
+    for (uint32_t i = 0; i < sizeof(formats) / sizeof(VkFormat); i++) {
+        uint32_t* dfd = vk2dfd(formats[i]);
+        ASSERT_TRUE(dfd != NULL) << "vk2dfd failed to produce DFD for "
+                                 << vkFormatString(formats[i]);
+        uint32_t* bdfd = dfd + 1;
+        uint32_t origBytesPlane0 = KHR_DFDVAL(bdfd, BYTESPLANE0);
+        KHR_DFDSETVAL(bdfd, BYTESPLANE0, 0);
+        uint32_t reconstructedBytesPlane0 = reconstructDFDBytesPlane0FromSamples(dfd);
+        EXPECT_EQ(origBytesPlane0, reconstructedBytesPlane0);
+        free(dfd);
+    }
+}
+
+TEST_F(DFDVkFormatListTest, BidirectionalVk2DfDTest) {
+
+    for (uint32_t i = 0; i < sizeof(formats) / sizeof(VkFormat); i++) {
+        uint32_t* dfd = vk2dfd(formats[i]);
+        ASSERT_TRUE(dfd != NULL) << "vk2dfd failed to produce DFD for "
+                                 << vkFormatString(formats[i]);
+        VkFormat formatOut = dfd2vk(dfd);
+        // The SCALED formats are indistinguishable from the INT formats
+        // and dfd2vk resolves the ambiguity in favor of the format more
+        // likely to be used as a texture.
+        //
+        // The A8B8G8R8_*_PACK32 formats are indistinguishable from the
+        // R8G8B8A8* formats and dfd2vk returns the more common format.
+        switch (formats[i]) {
+          case VK_FORMAT_R8_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8_UINT);
+            break;
+          case VK_FORMAT_R8_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8_SINT);
+            break;
+          case VK_FORMAT_R8G8_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8_UINT);
+            break;
+          case VK_FORMAT_R8G8_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8_SINT);
+            break;
+          case VK_FORMAT_B8G8R8_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_B8G8R8_UINT);
+            break;
+          case VK_FORMAT_B8G8R8_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_B8G8R8_SINT);
+            break;
+          case VK_FORMAT_R8G8B8_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8_UINT);
+            break;
+          case VK_FORMAT_R8G8B8_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8_SINT);
+            break;
+          case VK_FORMAT_R8G8B8A8_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_UINT);
+            break;
+          case VK_FORMAT_R8G8B8A8_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_SINT);
+            break;
+          case VK_FORMAT_B8G8R8A8_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_B8G8R8A8_UINT);
+            break;
+          case VK_FORMAT_B8G8R8A8_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_B8G8R8A8_SINT);
+            break;
+          case VK_FORMAT_A8B8G8R8_USCALED_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_UINT);
+            break;
+          case VK_FORMAT_A8B8G8R8_SSCALED_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_SINT);
+            break;
+          case VK_FORMAT_A8B8G8R8_UINT_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_UINT);
+            break;
+          case VK_FORMAT_A8B8G8R8_SINT_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_SINT);
+            break;
+          case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_SRGB);
+            break;
+          case VK_FORMAT_A2R10G10B10_USCALED_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_A2R10G10B10_UINT_PACK32);
+            break;
+          case VK_FORMAT_A2R10G10B10_SSCALED_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_A2R10G10B10_SINT_PACK32);
+            break;
+          case VK_FORMAT_A2B10G10R10_USCALED_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_A2B10G10R10_UINT_PACK32);
+            break;
+          case VK_FORMAT_A2B10G10R10_SSCALED_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_A2B10G10R10_SINT_PACK32);
+            break;
+          case VK_FORMAT_R16_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16_UINT);
+            break;
+          case VK_FORMAT_R16_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16_SINT);
+            break;
+          case VK_FORMAT_R16G16_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16G16_UINT);
+            break;
+          case VK_FORMAT_R16G16_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16G16_SINT);
+            break;
+          case VK_FORMAT_R16G16B16_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16G16B16_UINT);
+            break;
+          case VK_FORMAT_R16G16B16_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16G16B16_SINT);
+            break;
+          case VK_FORMAT_R16G16B16A16_USCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16G16B16A16_UINT);
+            break;
+          case VK_FORMAT_R16G16B16A16_SSCALED:
+            EXPECT_EQ(formatOut, VK_FORMAT_R16G16B16A16_SINT);
+            break;
+          case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_UNORM);
+            break;
+          case VK_FORMAT_A8B8G8R8_SNORM_PACK32:
+            EXPECT_EQ(formatOut, VK_FORMAT_R8G8B8A8_SNORM);
+            break;
+          default:
+            EXPECT_EQ(formatOut, formats[i]);
+        }
+        free(dfd);
+    }
+}
 
 //////////////////////////////
 // HashListTest Fixture
@@ -884,6 +1024,47 @@ TEST_F(SwizzleToRGBATestRGBA8, BGRZERO) {
 TEST_F(SwizzleToRGBATestRGBA8, ARGB) {
     swizzle_e r_to_rgba_mapping[4] = { A, R, G, B };
     runTest(r_to_rgba_mapping);
+}
+
+//////////////////////////////
+// LoadTest exceptions tests
+//////////////////////////////
+
+#define OUT_OF_HOST_MEMORY -1
+#define OUT_OF_DEVICE_MEMORY -2
+#define FRAGMENTED_POOL -12
+#define OUT_OF_POOL_MEMORY -1000069000
+
+TEST(BadVulkanAllocExceptionTest, NoDeviceMemory) {
+    try {
+        throw bad_vulkan_alloc(OUT_OF_DEVICE_MEMORY, "no device memory test");
+    } catch (bad_vulkan_alloc& e) {
+        EXPECT_EQ(strcmp(e.what(), "Out of device memory for no device memory test."), 0);
+    }
+}
+
+TEST(BadVulkanAllocExceptionTest, NoHostMemory) {
+    try {
+        throw bad_vulkan_alloc(OUT_OF_HOST_MEMORY, "no host memory test");
+    } catch (bad_vulkan_alloc& e) {
+        EXPECT_EQ(strcmp(e.what(), "Out of host memory for no host memory test."), 0);
+    }
+}
+
+TEST(BadVulkanAllocExceptionTest, NoPoolMemory) {
+    try {
+        throw bad_vulkan_alloc(OUT_OF_POOL_MEMORY, "no pool memory test");
+    } catch (bad_vulkan_alloc& e) {
+        EXPECT_EQ(strcmp(e.what(), "Out of pool memory for no pool memory test."), 0);
+    }
+}
+
+TEST(BadVulkanAllocExceptionTest, PoolFragmented) {
+    try {
+        throw bad_vulkan_alloc(FRAGMENTED_POOL, "fragmented pool memory test");
+    } catch (bad_vulkan_alloc& e) {
+        EXPECT_EQ(strcmp(e.what(), "Pool fragmented when allocating for fragmented pool memory test."), 0);
+    }
 }
 
 }  // namespace

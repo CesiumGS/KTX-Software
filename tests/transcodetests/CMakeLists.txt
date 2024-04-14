@@ -4,6 +4,8 @@
 add_executable( transcodetests
     transcodetests.cc
 )
+set_test_properties(transcodetests)
+set_code_sign(transcodetests)
 
 target_include_directories(
     transcodetests
@@ -32,7 +34,9 @@ PRIVATE
 target_compile_features(transcodetests PUBLIC cxx_std_11)
 
 gtest_discover_tests( transcodetests
-    TEST_PREFIX transcodetest
+    TEST_PREFIX transcodetest.
+    # With the 5s default we get periodic timeouts on Travis & GitHub CI.
+    DISCOVERY_TIMEOUT 15
     EXTRA_ARGS "${PROJECT_SOURCE_DIR}/tests/testimages/"
 )
 
@@ -43,10 +47,24 @@ if(WIN32)
         $<$<STREQUAL:"${BASISU_CBIND_LIBTYPE}","STATIC">:KHRONOS_STATIC>
     )
 
-    # The Windows ktx.dll does not export needed symbols from
-    # basisu_transcoder.cpp. This is a workaround to get it linking.
+    # Retrieve and set warning settings for the 2 files from the ktx target.
+    # See comment in ../../CMakeLists.txt around line 625.
+    if (transcoder_options)
+        set_source_files_properties(
+            ${PROJECT_SOURCE_DIR}/lib/basisu/transcoder/basisu_transcoder.cpp
+            PROPERTIES COMPILE_OPTIONS "${transcoder_options}"
+        )
+    endif()
+    if (zstd_options)
+        set_source_files_properties(
+            ${PROJECT_SOURCE_DIR}/lib/basisu/zstd/zstd.c
+            PROPERTIES COMPILE_OPTIONS "${zstd_options}"
+        )
+    endif()
+
+    # The Windows ktx.dll does not export needed symbols. This is a workaround to get it linking.
     add_library(obj_tmp_basisu OBJECT
-        ${PROJECT_SOURCE_DIR}/lib/basisu/transcoder/basisu_transcoder.cpp
+        $<$<NOT:$<BOOL:${KTX_FEATURE_STATIC_LIBRARY}>>:${PROJECT_SOURCE_DIR}/lib/basisu/transcoder/basisu_transcoder.cpp>
         ${PROJECT_SOURCE_DIR}/lib/basisu/zstd/zstd.c
         )
     target_compile_definitions(

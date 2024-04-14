@@ -48,9 +48,7 @@ VulkanLoadTests::VulkanLoadTests(const sampleInvocation samples[],
 
 VulkanLoadTests::~VulkanLoadTests()
 {
-    if (pCurSample != nullptr) {
-        delete pCurSample;
-    }
+    delete pCurSample;
 }
 
 bool
@@ -73,9 +71,7 @@ VulkanLoadTests::initialize(Args& args)
 void
 VulkanLoadTests::finalize()
 {
-    if (pCurSample != nullptr) {
-        delete pCurSample;
-    }
+    delete pCurSample;
     VulkanAppSDL::finalize();
 }
 
@@ -220,6 +216,30 @@ VulkanLoadTests::invokeSample(Direction dir)
             } else {
                 dir == Direction::eForward ? ++sampleIndex : --sampleIndex;
             }
+        } catch (bad_vulkan_alloc& e) {
+            const SDL_MessageBoxButtonData buttons[] = {
+                /* .flags, .buttonid, .text */
+                { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Abort" },
+            };
+            const SDL_MessageBoxData messageboxdata = {
+                SDL_MESSAGEBOX_ERROR,                           // .flags
+                NULL,                                           // .window
+                infiles.size() > 0 ?
+                  fileTitle.c_str() : sampleInv->title,         // .title
+                e.what(),                                       // .message
+                SDL_arraysize(buttons),                         // .numbuttons
+                buttons,                                        // .buttons
+                NULL //&colorScheme                             // .colorScheme
+            };
+            int buttonid;
+            if (SDL_ShowMessageBox(&messageboxdata, &buttonid) < 0) {
+                SDL_Log("error displaying error message box");
+                exit(1);
+            }
+            if (buttonid == 0) {
+                // We've been told to quit or no button was pressed.
+                exit(1);
+            }
         } catch (std::exception& e) {
             const SDL_MessageBoxButtonData buttons[] = {
                 /* .flags, .buttonid, .text */
@@ -323,160 +343,169 @@ VulkanLoadTests::showFile(std::string& filename)
 
 const VulkanLoadTests::sampleInvocation siSamples[] = {
     { Texture::create,
-      "testimages/Iron_Bars_001_normal_uastc_rdo3_zstd5.ktx2",
-      "UASTC+rdo+zstd compressed KTX2 normal map mipmapped"
+      "etc1s_Iron_Bars_001_normal.ktx2",
+      "Transcode of ETC1S+BasisLZ Compressed KTX2 XY normal map mipmapped"
     },
     { Texture::create,
-      "testimages/ktx_document_uastc_rdo4_zstd5.ktx2",
+      "uastc_Iron_Bars_001_normal.ktx2",
+      "Transcode of UASTC+zstd Compressed KTX2 XY normal map mipmapped"
+    },
+    { Texture::create,
+      "--use-vma uastc_Iron_Bars_001_normal.ktx2",
+      "Transcode of UASTC+zstd Compressed KTX2 XY normal map mipmapped, using VMA"
+    },
+    { Texture::create,
+      "ktx_document_uastc_rdo4_zstd5.ktx2",
       "UASTC+rdo+zstd compressed KTX2 RGBA8 mipmapped"
     },
     { Texture::create,
-      "testimages/color_grid_uastc_zstd.ktx2",
+      "color_grid_uastc_zstd.ktx2",
       "UASTC+zstd Compressed KTX2 RGB non-mipmapped"
     },
     { Texture::create,
-      "testimages/color_grid_zstd.ktx2",
+      "color_grid_zstd.ktx2",
       "Zstd Compressed KTX2 RGB non-mipmapped"
     },
     { Texture::create,
-      "testimages/color_grid_uastc.ktx2",
+      "color_grid_uastc.ktx2",
       "UASTC Compressed KTX2 RGB non-mipmapped"
     },
     { Texture::create,
-      "testimages/color_grid_basis.ktx2",
+      "color_grid_basis.ktx2",
       "ETC1S+BasisLZ Compressed KTX2 RGB non-mipmapped"
     },
     { Texture::create,
-      "testimages/kodim17_basis.ktx2",
+      "kodim17_basis.ktx2",
       "ETC1S+BasisLZ Compressed KTX2 RGB non-mipmapped"
     },
     { Texture::create,
-        "--qcolor 0.0,0.0,0.0 testimages/pattern_02_bc2.ktx2",
+        "--qcolor 0.0,0.0,0.0 pattern_02_bc2.ktx2",
         "KTX2: BC2 (S3TC DXT3) Compressed 2D"
     },
     { TextureMipmap::create,
-      "testimages/ktx_document_basis.ktx2",
-      "ETC1S+BasisLZ  compressed RGBA8 + Mipmap"
+      "ktx_document_basis.ktx2",
+      "ETC1S+BasisLZ  compressed RGBA + Mipmap"
     },
     { TextureMipmap::create,
-      "testimages/rgba-mipmap-reference-basis.ktx2",
-      "ETC1S+BasisLZ Compressed RGBA8 + Mipmap"
+      "rgba-mipmap-reference-basis.ktx2",
+      // ETC1S encoder removed all-1 alpha from rgba-mipmap-reference.
+      "ETC1S+BasisLZ Compressed RGB + Mipmap"
     },
     { Texture3d::create,
-      "testimages/3dtex_7_reference_u.ktx2",
+      "3dtex_7_reference_u.ktx2",
       "RGBA8 3d Texture, Depth == 7"
     },
     { TextureArray::create,
-      "testimages/arraytex_7_mipmap_reference_u.ktx2",
+      "arraytex_7_mipmap_reference_u.ktx2",
       "RGBA8 Array Texture, Layers = 7"
     },
     { TextureCubemap::create,
-      "testimages/cubemap_goldengate_uastc_rdo4_zstd5_rd.ktx2",
-      "UASTC+rdo+zstd Compressed Cube Map"
+      "cubemap_goldengate_uastc_rdo4_zstd5_rd.ktx2",
+      "UASTC+rdo+zstd Compressed RGB Cube Map"
     },
     { TextureCubemap::create,
-      "--preload testimages/cubemap_goldengate_uastc_rdo4_zstd5_rd.ktx2",
-      "UASTC+rdo+zstd Compressed Cube Map from pre-loaded images"
+      "--preload cubemap_goldengate_uastc_rdo4_zstd5_rd.ktx2",
+      "UASTC+rdo+zstd Compressed RGB Cube Map from pre-loaded images"
     },
     { TextureCubemap::create,
-        "testimages/cubemap_yokohama_basis_rd.ktx2",
-        "ETC1S+BasisLZ Compressed Cube Map"
+        "cubemap_yokohama_basis_rd.ktx2",
+        "ETC1S+BasisLZ Compressed RGB Cube Map"
     },
     { TextureCubemap::create,
-        "--preload testimages/cubemap_yokohama_basis_rd.ktx2",
-        "ETC1S+BasisLZ Compressed Cube Map from pre-loaded images"
+        "--preload cubemap_yokohama_basis_rd.ktx2",
+        "ETC1S+BasisLZ Compressed RGB Cube Map from pre-loaded images"
     },
     { TextureCubemap::create,
-        "testimages/skybox_zstd.ktx2",
+        "skybox_zstd.ktx2",
         "Zstd Compressed B10G11R11_UFLOAT Cube Map. Tests for correct blockSizeInBits after inflation"
     },
     { Texture::create,
-      "testimages/orient-down-metadata.ktx",
+      "orient-down-metadata.ktx",
       "RGB8 2D + KTXOrientation down"
     },
     { Texture::create,
-      "testimages/orient-up-metadata.ktx",
+      "orient-up-metadata.ktx",
       "RGB8 2D + KTXOrientation up"
     },
     { Texture::create,
-      "--linear-tiling testimages/orient-up-metadata.ktx",
+      "--linear-tiling orient-up-metadata.ktx",
       "RGB8 2D + KTXOrientation up with Linear Tiling"
     },
     { Texture::create,
-      "testimages/rgba-reference.ktx",
+      "rgba-reference.ktx",
       "RGBA8 2D"
     },
     { Texture::create,
-        "--linear-tiling testimages/rgba-reference.ktx",
+        "--linear-tiling rgba-reference.ktx",
         "RGBA8 2D using Linear Tiling"
     },
     { Texture::create,
-      "testimages/etc2-rgb.ktx",
+      "etc2-rgb.ktx",
       "ETC2 RGB8"
     },
     { Texture::create,
-      "testimages/etc2-rgba8.ktx",
+      "etc2-rgba8.ktx",
       "ETC2 RGB8A8"
     },
     { Texture::create,
-      "testimages/etc2-sRGB.ktx",
+      "etc2-sRGB.ktx",
       "ETC2 sRGB8"
     },
     { Texture::create,
-        "testimages/etc2-sRGBa8.ktx",
+        "etc2-sRGBa8.ktx",
         "ETC2 sRGB8a8"
     },
     { Texture::create,
-        "--qcolor 0.0,0.0,0.0 testimages/pattern_02_bc2.ktx",
+        "--qcolor 0.0,0.0,0.0 pattern_02_bc2.ktx",
         "BC2 (S3TC DXT3) Compressed 2D"
     },
     { TextureMipmap::create,
-      "testimages/rgb-amg-reference.ktx",
+      "rgb-amg-reference.ktx",
       "RGB8 + Auto Mipmap"
     },
     { TextureMipmap::create,
-      "--linear-tiling testimages/rgb-amg-reference.ktx",
+      "--linear-tiling rgb-amg-reference.ktx",
       "RGB8 + Auto Mipmap using Linear Tiling"
     },
     { TextureMipmap::create,
-      "testimages/metalplate-amg-rgba8.ktx",
+      "metalplate-amg-rgba8.ktx",
       "RGBA8 2D + Auto Mipmap"
     },
     { TextureMipmap::create,
-      "--linear-tiling testimages/metalplate-amg-rgba8.ktx",
+      "--linear-tiling metalplate-amg-rgba8.ktx",
       "RGBA8 2D + Auto Mipmap using Linear Tiling"
     },
     { TextureMipmap::create,
-      "testimages/not4_rgb888_srgb.ktx",
+      "not4_rgb888_srgb.ktx",
       "RGB8 2D, Row length not Multiple of 4"
     },
     { TextureMipmap::create,
-      "--linear-tiling testimages/not4_rgb888_srgb.ktx",
+      "--linear-tiling not4_rgb888_srgb.ktx",
       "RGB8 2D, Row length not Multiple of 4 using Linear Tiling"
     },
     { TextureArray::create,
-        "testimages/texturearray_bc3_unorm.ktx",
+        "texturearray_bc3_unorm.ktx",
         "BC2 (S3TC DXT3) Compressed Texture Array"
     },
     { TextureArray::create,
-        "--linear-tiling testimages/texturearray_bc3_unorm.ktx",
+        "--linear-tiling texturearray_bc3_unorm.ktx",
         "BC2 (S3TC DXT3) Compressed Texture Array using Linear Tiling"
     },
     { TextureArray::create,
-        "testimages/texturearray_astc_8x8_unorm.ktx",
+        "texturearray_astc_8x8_unorm.ktx",
         "ASTC 8x8 Compressed Texture Array"
     },
     { TextureArray::create,
-        "testimages/texturearray_etc2_unorm.ktx",
+        "texturearray_etc2_unorm.ktx",
         "ETC2 Compressed Texture Array"
     },
 #if 0
     { TexturedCube::create,
-      "testimages/rgb-amg-reference.ktx",
+      "rgb-amg-reference.ktx",
       "RGB8 + Auto Mipmap"
     },
     { TexturedCube::create,
-      "testimages/rgb-amg-reference.ktx",
+      "rgb-amg-reference.ktx",
       "RGB8 + Auto Mipmap"
     },
 #endif

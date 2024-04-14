@@ -3,7 +3,6 @@
 
 add_executable( ktxinfo
     ktxinfo.cpp
-    stdafx.h
 )
 create_version_header( tools/ktxinfo ktxinfo )
 
@@ -23,4 +22,4 @@ target_link_libraries(
 )
 
 set_tool_properties(ktxinfo)
-set_xcode_code_sign(ktxinfo)
+set_code_sign(ktxinfo)

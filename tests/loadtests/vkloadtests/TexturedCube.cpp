@@ -548,11 +548,11 @@ TexturedCube::preparePipeline()
     shaderStages[1].pName = "main";
     //shaderStages[1].pSpecializationInfo = nullptr;
 #else
-    std::string filepath = getAssetPath() + "shaders/";
-    shaderStages[0] = loadShader(filepath + "cube.vert.spv",
-                                vk::ShaderStageFlagBits::eVertex);
-    shaderStages[1] = loadShader(filepath + "cube.frag.spv",
-                                vk::ShaderStageFlagBits::eFragment);
+    std::string filepath = getAssetPath();
+    shaderStages[0] = static_cast<VkPipelineShaderStageCreateInfo>(loadShader(filepath + "cube.vert.spv",
+                                vk::ShaderStageFlagBits::eVertex));
+    shaderStages[1] = static_cast<VkPipelineShaderStageCreateInfo>(loadShader(filepath + "cube.frag.spv",
+                                vk::ShaderStageFlagBits::eFragment));
 
 #endif
 
@@ -654,7 +654,7 @@ TexturedCube::prepareDescriptorPool() {
         2,
         typeCounts,
     };
-    VkResult U_ASSERT_ONLY err;
+    U_ASSERT_ONLY VkResult err;
 
     err = vkCreateDescriptorPool(vkctx.device, &dpoolCreateInfo, NULL,
                                  &descriptorPool);

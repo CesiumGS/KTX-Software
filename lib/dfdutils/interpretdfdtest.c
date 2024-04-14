@@ -198,7 +198,7 @@ uint32_t dfd6[] = { /* Little-endian unpacked extended (N.B. could be done in tw
     0xFFFFFFFFU
 };
 
-int main()
+int main(int argc, char** argv)
 {
     const char *errorText[] = {
         "UNSUPPORTED_NONTRIVIAL_ENDIANNESS",
@@ -228,7 +228,7 @@ int main()
     uint32_t *d = createDFDUnpacked(0, 3, 1, 0, s_UNORM);
 #endif
 
-    printDFD(d);
+    printDFD(d, *d);
     t = interpretDFD(d, &R, &G, &B, &A, &wordSize);
 #endif
 

@@ -25,31 +25,31 @@ function(git_update_index)
 endfunction()
 
 function(git_describe_raw _var)
-	if(NOT GIT_FOUND)
-		find_package(Git QUIET)
-	endif()
-	if(NOT GIT_FOUND)
-		set(${_var} "GIT-NOTFOUND" PARENT_SCOPE)
-		return()
-	endif()
+    if(NOT GIT_FOUND)
+        find_package(Git QUIET)
+    endif()
+    if(NOT GIT_FOUND)
+        set(${_var} "GIT-NOTFOUND" PARENT_SCOPE)
+        return()
+    endif()
 
-	execute_process(COMMAND
-		"${GIT_EXECUTABLE}"
-		describe
-		${ARGN}
-		WORKING_DIRECTORY
-		"${CMAKE_CURRENT_SOURCE_DIR}"
-		RESULT_VARIABLE
-		res
-		OUTPUT_VARIABLE
-		out
-		ERROR_QUIET
-		OUTPUT_STRIP_TRAILING_WHITESPACE)
-	if(NOT res EQUAL 0)
-		set(out "${out}-${res}-NOTFOUND")
-	endif()
+    execute_process(COMMAND
+        "${GIT_EXECUTABLE}"
+        describe
+        ${ARGN}
+        WORKING_DIRECTORY
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE
+        res
+        OUTPUT_VARIABLE
+        out
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT res EQUAL 0)
+        set(out "${out}-${res}-NOTFOUND")
+    endif()
 
-	set(${_var} "${out}" PARENT_SCOPE)
+    set(${_var} "${out}" PARENT_SCOPE)
 endfunction()
 
 function(git_rev_list target_path _var)
@@ -115,7 +115,7 @@ git_describe_raw(KTX_VERSION_FULL --abbrev=0 --match v[0-9]*)
 # generate_version(TOKTX_VERSION tools/toktx)
 # message("TOKTX_VERSION: ${TOKTX_VERSION}")
 
-# First try a full regex ( vMARJOR.MINOR.PATCH-TWEAK )
+# First try a full regex ( vMAJOR.MINOR.PATCH-TWEAK )
 string(REGEX MATCH "^v([0-9]*)\.([0-9]*)\.([0-9]*)(-[^\.]*)"
        KTX_VERSION ${KTX_VERSION_FULL})
 
@@ -125,7 +125,7 @@ if(KTX_VERSION)
     set(KTX_VERSION_PATCH ${CMAKE_MATCH_3})
     set(KTX_VERSION_TWEAK ${CMAKE_MATCH_4})
 else()
-    # If full regex failed, go for vMARJOR.MINOR.PATCH
+    # If full regex failed, go for vMAJOR.MINOR.PATCH
     string(REGEX MATCH "^v([0-9]*)\.([0-9]*)\.([^\.]*)"
             KTX_VERSION ${KTX_VERSION_FULL})
 
@@ -197,5 +197,7 @@ function( create_version_header dest_path target )
 endfunction()
 
 function( create_version_file )
-    file(WRITE ${PROJECT_BINARY_DIR}/ktx.version "${KTX_VERSION}")
+    file(WRITE ${PROJECT_BINARY_DIR}/ktx.version "${KTX_VERSION_FULL}")
 endfunction()
+
+# vim:ai:ts=4:sts=4:sw=2:expandtab:textwidth=70

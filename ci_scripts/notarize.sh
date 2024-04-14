@@ -5,25 +5,27 @@
 # notarize.sh
 
 # Checks pkg for a valid signature. If valid, uploads the pkg for
-# notarization and monitors the notarization status
+# notarization and waits for the notarization status
 
-# Usage: notarize.sh <path/to/pkg> <appleid> <devteam> <password-label>
+# Usage: notarize.sh <path/to/pkg> <appleid> <devteam> <password>
 #    path/to/pkg - path a signed .pkg file to be notarized.
 #    appleid - Apple developer login.
-#    devtem - 10 character development team identifier.
-#    password - app-specific password for altool to use when logging in to <applieid>.
-#               If the password is stored in the keychain then this argument should be
-#               of the form @keychain:<pw_label> where <pw_label> is the label
-#               of the password in the keychain.
+#    devteam - 10 character development team identifier. Use Khronos dev
+#              team id when notarizing apps signed with Khronos cert.
+#    password - app-specific password for to use when logging in to
+#               <appleid>. The same app-specific password can be used
+#               for both altool and notarytool. If the password is stored
+#               in the keychain then this argument should be of the form
+#               @keychain:<pw_label> where <pw_label> is the label of the
+#               password in the keychain.
 #
-# Retrieving this password from the keychain during a Travis-CI build is not working for
-# reasons that are not clear. altool is hanging. Clearly macOS security is asking
-# for permission for altool to access the keychain, even though this was set up.
+# Retrieving this password from the keychain during a Travis-CI build was
+# not working for altool for reasons that are not clear. altool would hang.
+# Likely macOS security is asking for permission for altool to access the
+# keychain, even though this was set up. This has not been tried with
+# notarytool.
 
 # Thanks to Armin Briegel for the script that inspired this one.
-
-# Project information
-bundleid="com.khronos.ktx"
 
 # Code starts here
 
@@ -37,53 +39,62 @@ else
   passwd=$4
 fi
 
+logfile=notarization.json
+
 # functions
-requeststatus() { # $1: requestUUID
-    req_status=$(xcrun altool --notarization-info "$requestUUID" \
-                              --username "$appleid" \
-                              --password "$passwd" 2>&1 \
-                 | awk -F ': ' '/Status:/ { print $2; }' )
-    echo "$req_status"
-}
-
-notarizefile() { # $1: path to file to notarize, $2: bundle id.
+notarizefile() { # $1: path to file to notarize
     # upload file
-    echo "## uploading $1 for notarization"
-    if al_out=$(xcrun altool --notarize-app \
-                               --primary-bundle-id "$2" \
-                               --username "$appleid" \
-                               --password "$passwd" \
-                               --asc-provider "$devteam" \
-                               --file "$1" 2>&1)
+    echo "## Sending $1 for notarization."
+    echo "## Will await result. This may take some time..."
+    if nt_out=$(xcrun notarytool submit "$1" \
+                           --wait \
+                           --apple-id "$appleid" \
+                           --password "$passwd" \
+                           --team-id "$devteam")
     then
-        requestUUID=$(echo -n $al_out | awk '/RequestUUID/ { print $NF; }')
-        echo "Notarization RequestUUID: $requestUUID"
+        # N.B. notarytool outputs 2 lines starting with "status:". The first
+        # initially says "In Progress" and is later overwritten with the
+        # final status. This is done by sending a CR followed by the new text.
+        # The second "status:" line is output at the end. All interim and
+        # final messages are recorded in $nt_out. To avoid matching any interim
+        # messages - "In" is a particular problem - use entire status response
+        # words in this RE.
+        #
+        # A big thank to Apples, NOT :-(, for failing to document in the
+        # command help or even the TechNotes about notarization, the output
+        # from notarytool during --wait or to give any example of use.
+        if [[ "$nt_out" =~ "status: (Accepted|Invalid|Rejected)" ]]; then
+            ntz_status=$match[1]
+            # There are many "id:" lines in the output. Fortunately they
+            # all have the same value.
+            [[ $nt_out =~ "id: ([0-9a-f\-]+)" ]] && id=$match[1]
+            if ! xcrun notarytool log $id $logfile \
+                           --apple-id "$appleid" \
+                           --password "$passwd" \
+                           --team-id "$devteam"
+            then
+               echo "$0: Retrieval of notarization log for id $id failed."
+               exit 1
+            fi
+            echo "## Notarization status: $ntz_status. Log:"
+            cat $logfile
+            echo
+            rm $logfile
+        else
+            echo "$0: \"status:\" not found in notarytool output."
+            exit 1
+        fi
     else
-        echo "Could not upload for notarization: $al_out"
+        echo "$0: Error while attempting to notarize $1."
+        echo $nt_out
         exit 1
     fi
 
-    # Wait for status to be not "in progress" any more
-    request_status="in progress"
-    while [[ "$request_status" == "in progress" ]]; do
-        echo -n "waiting... "
-        sleep 10
-        request_status=$(requeststatus "$requestUUID")
-        echo "$request_status"
-    done
-
-    # Print status information
-    xcrun altool --notarization-info "$requestUUID" \
-                 --username "$appleid" \
-                 --password "$passwd"
-    echo
-
-    if [[ $request_status != "success" ]]; then
-        echo "Could not notarize $1"
+    if [[ $ntz_status != "Accepted" ]]; then
+        echo "## $1 not notarized. Exiting"
         exit 1
     fi
 }
-
 
 # Check if pkg exists where we expect it
 if [[ ! -f $pkg ]]; then
@@ -93,12 +104,12 @@ fi
 
 # Check the package is signed
 if ! pkgutil --check-signature $pkg > /dev/null; then
-  echo "Package does not have a valid signature."
+  echo "$0: Package $pkg does not have a valid signature."
   exit 2
 fi
 
 # Upload for notarization
-notarizefile "$pkg" "$bundleid"
+notarizefile "$pkg"
 
 # staple result
 echo "## Stapling $pkg"

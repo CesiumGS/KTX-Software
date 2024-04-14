@@ -146,7 +146,7 @@ ktxTexture1_setImageFromStream(ktxTexture1* This, ktx_uint32_t level,
 }
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Set image for level, layer, faceSlice from a stdio stream source.
  *
@@ -192,7 +192,7 @@ ktxTexture1_SetImageFromStdioStream(ktxTexture1* This, ktx_uint32_t level,
 }
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Set image for level, layer, faceSlice from an image in memory.
  *
@@ -240,7 +240,7 @@ ktxTexture1_SetImageFromMemory(ktxTexture1* This, ktx_uint32_t level,
 }
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Write a ktxTexture object to a ktxStream in KTX format.
  *
@@ -356,7 +356,7 @@ cleanup:
 }
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Write a ktxTexture object to a stdio stream in KTX format.
  *
@@ -393,9 +393,12 @@ ktxTexture1_WriteToStdioStream(ktxTexture1* This, FILE* dstsstr)
 }
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Write a ktxTexture object to a named file in KTX format.
+ *
+ * The file name must be encoded in utf-8. On Windows convert unicode names
+ * to utf-8 with @c WideCharToMultiByte(CP_UTF8, ...) before calling.
  *
  * @param[in] This      pointer to the target ktxTexture object.
  * @param[in] dstname   destination file name.
@@ -422,7 +425,7 @@ ktxTexture1_WriteToNamedFile(ktxTexture1* This, const char* const dstname)
     if (!This)
         return KTX_INVALID_VALUE;
 
-    dst = fopen(dstname, "wb");
+    dst = ktxFOpenUTF8(dstname, "wb");
     if (dst) {
         result = ktxTexture1_WriteToStdioStream(This, dst);
         fclose(dst);
@@ -433,7 +436,7 @@ ktxTexture1_WriteToNamedFile(ktxTexture1* This, const char* const dstname)
 }
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Write a ktxTexture object to block of memory in KTX format.
  *
@@ -501,7 +504,7 @@ KTX_error_code appendLibId(ktxHashList* head,
                            ktxHashListEntry* writerEntry);
 
 /**
- * @memberof ktxTexture
+ * @memberof ktxTexture1
  * @~English
  * @brief Write a ktxTexture object to a ktxStream in KTX 2 format.
  *
@@ -516,6 +519,10 @@ KTX_error_code appendLibId(ktxHashList* head,
  * @exception KTX_INVALID_OPERATION
  *                              The ktxTexture contains unknownY KTX- or ktx-
  *                              prefixed metadata keys.
+ * @exception KTX_INVALID_OPERATION
+ *                              The length of the already set writerId metadata
+ *                              plus the library's version id exceeds the
+ *                              maximum allowed.
  * @exception KTX_FILE_OVERFLOW The file exceeded the maximum size supported by
  *                              the system.
  * @exception KTX_FILE_WRITE_ERROR
@@ -579,6 +586,9 @@ ktxTexture1_WriteKTX2ToStream(ktxTexture1* This, ktxStream* dststr)
 
         ktxHashListEntry_GetKey(pEntry, &keyLen, &key);
         if (strncasecmp(key, "KTX", 3) == 0) {
+            // N.B. Writer metadata is not legal in a KTX v1 file but we know
+            // we're going to write this out as a v2 file so we allow it so
+            // conversion apps can identify themselves.
             if (strcmp(key, KTX_ORIENTATION_KEY) && strcmp(key, KTX_WRITER_KEY)) {
                 result = KTX_INVALID_OPERATION;
                 goto cleanup;
@@ -618,6 +628,7 @@ ktxTexture1_WriteKTX2ToStream(ktxTexture1* This, ktxStream* dststr)
                               count+1, newOrient);
     }
     pEntry = NULL;
+    // See comment at valid metadata check at line 582.
     result = ktxHashList_FindEntry(&This->kvDataHead, KTX_WRITER_KEY,
                                    &pEntry);
     result = appendLibId(&This->kvDataHead, pEntry);
@@ -834,9 +845,12 @@ ktxTexture1_WriteKTX2ToStdioStream(ktxTexture1* This, FILE* dstsstr)
  * @~English
  * @brief Write a ktxTexture object to a named file in KTX2 format.
  *
- * Callers are strongly urged to include a KTXwriter item in the texture's metadata.
- * It can be added by code, similar to the following, prior to calling this
- * function.
+ * The file name must be encoded in utf-8. On Windows convert unicode names
+ * to utf-8 with @c WideCharToMultiByte(CP_UTF8, ...) before calling.
+ *
+ * Callers are strongly urged to include a KTXwriter item in the texture's
+ * metadata. It can be added by code, similar to the following, prior to
+ * calling this function.
  * @code
  *     char writer[100];
  *     snprintf(writer, sizeof(writer), "%s version %s", appName, appVer);
@@ -870,7 +884,7 @@ ktxTexture1_WriteKTX2ToNamedFile(ktxTexture1* This, const char* const dstname)
     if (!This)
         return KTX_INVALID_VALUE;
 
-    dst = fopen(dstname, "wb");
+    dst = ktxFOpenUTF8(dstname, "wb");
     if (dst) {
         result = ktxTexture1_WriteKTX2ToStdioStream(This, dst);
         fclose(dst);

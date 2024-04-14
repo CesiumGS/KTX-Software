@@ -3,7 +3,6 @@
 
 add_executable( ktxsc
     ktxsc.cpp
-    stdafx.h
 )
 create_version_header( tools/ktxsc ktxsc )
 
@@ -23,5 +22,12 @@ target_link_libraries(
     objUtil
 )
 
+set_target_properties(
+    ktxsc
+    PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED YES
+)
+
 set_tool_properties(ktxsc)
-set_xcode_code_sign(ktxsc)
+set_code_sign(ktxsc)

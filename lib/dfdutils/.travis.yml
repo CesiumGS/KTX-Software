@@ -4,40 +4,23 @@
 # CI build script for Travis.
 # See https://docs.travis-ci.com/user/multi-os/ for more info.
 
-branches:
-  except:
-  - ktxsw
-
-language:
-  - cpp
-  - node_js
+language: cpp
 
 matrix:
   include:
-    # works on Focal
     - os: linux
       addons:
-        apt:
-          sources:
-            - sourceline: 'ppa:ubuntu-toolchain-r/test'
-          packages:
-            - gcc-7
-            - g++-7
       dist: focal
       env:
-        - MATRIX_EVAL="CC=gcc-7 && CXX=g++-7"
-        - VULKAN_SDK_VER="1.1.85"
+        - VULKAN_SDK_VER="1.2.176"
       compiler: gcc # clang is tested by macOS build
-      sudo: required
-      node_js:
-        - node
     - os: osx
       env:
-        - VULKAN_SDK_VER="1.1.85.0"
+        - VULKAN_SDK_VER="1.2.176.1"
         - VULKAN_INSTALL_DIR="$HOME/build/vulkansdk-macos-$VULKAN_SDK_VER"
         - VULKAN_SDK="$VULKAN_INSTALL_DIR/macOS"
       compiler: clang
-      osx_image: xcode11.4
+      osx_image: xcode13.2
 
 #env:
   #global:
@@ -54,7 +37,8 @@ install:
   linux)
     # No need to install git-lfs. It is part of Travis's Ubuntu environment.
     sudo apt-get -qq update &&
-    sudo apt-get -qq install doxygen
+    sudo apt-get -qq install doxygen &&
+    pip3 install reuse
     ;;
   osx)
     brew install doxygen
@@ -71,6 +55,7 @@ script:
 - |
   case "${TRAVIS_OS_NAME:-linux}" in
   linux)
+    reuse lint &&
     make
     ;;
   osx)
@@ -82,7 +67,7 @@ script:
 
 deploy:
   provider: pages
-  skip-cleanup: true
+  edge: true # Use bleeding edge (dplv2)
   github-token: $GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
   local-dir: out/doc/html
   on:

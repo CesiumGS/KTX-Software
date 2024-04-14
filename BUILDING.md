@@ -15,7 +15,7 @@ KTX consist of the following parts
 - Load test applications (for [OpenGL<sup>®</sup> 3](https://www.khronos.org/opengl), [OpenGLES<sup>®</sup>](https://www.khronos.org/opengles) or [Vulkan<sup>®</sup>](https://www.khronos.org/vulkan))
 - Documentation
 
-Supported platforms (please to through their specific requirements first)
+Supported platforms (please see their specific requirements first)
 
 - [GNU/Linux](#gnulinux)
 - [Apple macOS/iOS](#apple-macosios)
@@ -40,15 +40,29 @@ cmake --build build
 This creates the `libktx` library and the command line tools. To create the complete project generate the project like this:
 
 ```bash
-cmake . -B build -DKTX_FEATURE_LOADTEST_APPS=ON -DKTX_FEATURE_DOC=ON
+cmake . -B build -D KTX_FEATURE_LOADTEST_APPS=ON -D KTX_FEATURE_DOC=ON
 ```
 
-If you need the library to be static, enable the `KTX_FEATURE_STATIC_LIBRARY` setting (always enabled on iOS and Emscripten).
+If you need the library to be static, add `-D KTX_FEATURE_STATIC_LIBRARY=ON` to the CMake configure command (always enabled on iOS and Emscripten).
 
 > **Note:**
 >
-> When trying to link static library, make sure to
+> When linking to the static library, make sure to
 > define `KHRONOS_STATIC` before including KTX header files.
+> This is especially important on Windows.
+
+If you want to run the CTS tests (recommended only during KTX development)
+add `-D KTX_FEATURE_TOOLS_CTS=ON` to the CMake configure command and fetch
+the CTS submodule. For more information see [Conformance Test Suite](#conformance-test-suite).
+
+If you want the Basis Universal encoders in `libktx` to use OpenCL
+add `-D BASISU_SUPPORT_OPENCL=ON` to the CMake configure command.
+
+> **Note:**
+> 
+>  There is very little advantage to using OpenCL in the context
+>  of `libktx`. It is disabled in the default build configuration.
+
 
 Building
 --------
@@ -62,6 +76,12 @@ You need to install the following
 - [GNU Make](https://www.gnu.org/software/make) or [Ninja](https://ninja-build.org) (recommended)
 - [Doxygen](#doxygen) (only if generating documentation)
 
+To build `libktx` such that the Basis Universal encoders will use
+OpenCL you need
+
+- OpenCL headers
+- OpenCL driver
+
 Additional requirements for the load tests applications
 
 - SDL2 development library
@@ -74,7 +94,15 @@ Additional requirements for the load tests applications
 On Ubuntu and Debian these can be installed via
 
 ```bash
-sudo apt install build-essential cmake libzstd-dev ninja-build doxygen libsdl2-dev libgl1-mesa-glx libgl1-mesa-dev libvulkan1 libvulkan-dev libassimp-dev
+sudo apt install build-essential cmake libzstd-dev ninja-build doxygen libsdl2-dev libgl1-mesa-glx libgl1-mesa-dev libvulkan1 libvulkan-dev libassimp-dev opencl-c-headers mesa-opencl-icd
+```
+
+`mesa-opencl-icd` should be replaced by the appropriate package for your GPU.
+
+On Fedora and RedHat these can be installed via
+
+```bash
+sudo dnf install make automake gcc gcc-c++ kernel-devel cmake libzstd-devel ninja-build doxygen SDL2-devel mesa-libGL mesa-libGL-devel mesa-vulkan-drivers assimp-devel opencl-headers mesa-libOpenCL
 ```
 
 KTX requires `glslc`, which comes with [Vulkan SDK](#vulkan-sdk) (in sub-
@@ -96,7 +124,7 @@ You should be able then to build like this
 # First either configure a debug build of libktx and the tools
 cmake . -G Ninja -B build
 # ...or alternatively a release build including all targets
-cmake . -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DKTX_FEATURE_LOADTEST_APPS=ON -DKTX_FEATURE_DOC=ON
+cmake . -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -D KTX_FEATURE_LOADTEST_APPS=ON -D KTX_FEATURE_DOC=ON
 
 # Compile the project
 cmake --build build
@@ -129,8 +157,9 @@ To build for macOS:
 mkdir build
 cmake -G Xcode -B build/mac
 
-# If you want to build the load test apps as well, you have to set the `KTX_FEATURE_LOADTEST_APPS` parameter:
-cmake -GXcode -Bbuild/mac -DKTX_FEATURE_LOADTEST_APPS=ON"
+# If you want to build the load test apps as well, you have to
+# set the `KTX_FEATURE_LOADTEST_APPS` parameter:
+cmake -GXcode -Bbuild/mac -D KTX_FEATURE_LOADTEST_APPS=ON
 
 # Compile the project
 cmake --build build/mac
@@ -140,14 +169,14 @@ cmake --build build/mac
 Macs are either based on Intel or the newer Apple Silicon architecture. By default CMake configures to build for your host's platform, whichever it is. If you want to cross compile universal binaries (that support both platforms), add the parameter `-DCMAKE_OSX_ARCHITECTURES="\$(ARCHS_STANDARD)"` to cmake.
 
 > **Known limitations:**
-> - Load tests apps are not supported on native Apple Silicon and cannot be cross compiled for Intel either
-> - Intel Macs have support for SSE, but if you're building universal binaries, you have to disable SSE or the build will fail
+> - Intel Macs have support for SSE, but if you're building universal binaries,
+>   you have to disable SSE or the build will fail
 
 Example how to build universal binaries
 
 ```bash
 # Configure universal binaries and disable SSE 
-cmake -G Xcode -B build-macos-universal -DCMAKE_OSX_ARCHITECTURES="\$(ARCHS_STANDARD)" -DBASISU_SUPPORT_SSE=OFF
+cmake -G Xcode -B build-macos-universal -D CMAKE_OSX_ARCHITECTURES="\$(ARCHS_STANDARD)" -D BASISU_SUPPORT_SSE=OFF
 # Build 
 cmake --build build-macos-universal
 # Easy way to check if the resulting binaries are universal
@@ -165,20 +194,23 @@ file build-macos-universal/Debug/toktx
 # build-macos-universal/Debug/toktx (for architecture arm64):	Mach-O 64-bit executable arm64
 ```
 
+To explicity build for one or the other architecture use
+`-D CMAKE_OSX_ARCHITECTURES=arm64` or `-D CMAKE_OSX_ARCHITECTURES=x86_64`
+
 ##### macOS signing
 
 To sign the applications you need to set the following CMake variables:
 
 | Name | Value |
-| :---: | :---: |
-| XCODE\_CODE\_SIGN\_IDENTITY | Owner of the _Developer ID Application_ certificate to use for signing. |
+| :--: | ----- |
+| XCODE\_CODE\_SIGN\_IDENTITY | Owner* of the _Developer ID Application_ certificate to use for signing. |
 | XCODE\_DEVELOPMENT\_TEAM | Development team of the certificate owner.
 
 To sign the installation package you need to set the following variables:
 
 | Name | Value |
-| :---: | :---: |
-| PRODUCTBUILD\_IDENTITY\_NAME | Owner of the _Developer ID Installer_ certificate to use for signing. |
+| :--: | ----- |
+| PRODUCTBUILD\_IDENTITY\_NAME | Owner* of the _Developer ID Installer_ certificate to use for signing. |
 | PRODUCTBUILD\_KEYCHAIN\_PATH | Path to the keychain file with the certificate. Blank if its in the default keychain.
 
 #### iOS
@@ -188,10 +220,10 @@ To build for iOS:
 ```bash
 # This creates an Xcode project at `build/ios/KTX-Software.xcodeproj` containing the libktx targets.
 mkdir build # if it does not exist
-cmake -G Xcode -B build/ios -DCMAKE_SYSTEM_NAME=iOS
+cmake -G Xcode -B build/ios -D CMAKE_SYSTEM_NAME=iOS
 
 # This creates a project to build the load test apps as well.
-cmake -G Xcode -B build/ios -DKTX_FEATURE_LOADTEST_APPS=ON"
+cmake -G Xcode -B build/ios -D KTX_FEATURE_LOADTEST_APPS=ON"
 
 # Compile the project
 cmake --build build -- -sdk iphoneos
@@ -203,11 +235,16 @@ If using the CMake GUI, when it asks you to specify the generator for the projec
 
 To sign the applications you need to set the following CMake variables:
 
-| Name | Value |
-| :---: | :---: |
-| XCODE\_CODE\_SIGN\_IDENTITY | Owner of the _Apple Development_ certificate to use for signing. |
+| Name  | Value |
+| :---: | ----- |
+| XCODE\_CODE\_SIGN\_IDENTITY | Owner* of the _Apple Development_ certificate to use for signing. |
 | XCODE\_DEVELOPMENT\_TEAM | Development team used to create the Provisioning Profile. This may not be the same as the team of the _Apple Development_ certificate owner.
 | XCODE\_PROVISIONING\_PROFILE | Name of the profile to use.
+
+\* _Owner_ is what is formally known as the _Subject Name_ of a certificate. It
+is the string displayed by the Keychain Access app in the list of installed
+certificates and shown as the value of the _Common Name_ field of the _Subject
+Name_ section of the details shown after double-clicking the certificate.
 
 ### Web/Emscripten
 
@@ -235,7 +272,7 @@ Install [Emscripten](https://emscripten.org) and follow the [install instruction
 
 ```bash
 # Configure
-emcmake cmake -B build-web-debug . -DCMAKE_BUILD_TYPE=Debug
+emcmake cmake -B build-web-debug . -D CMAKE_BUILD_TYPE=Debug
 
 # Build
 cmake --build build-web-debug --config Debug
@@ -271,7 +308,7 @@ The CMake generators for Visual Studio 2017 and earlier generate projects whose 
 ```bash
 # -G shown for completeness. Not needed if you are happy
 # with the CMake's default selection.
-cmake -G "Visual Studio 15 2017" -B build -A x64 .
+cmake -G "Visual Studio 17 2022" -B build -A x64 .
 ```
 
 When using a more recent Visual Studio you simply need
@@ -291,10 +328,15 @@ To configure for Universal Windows Platform (Windows Store) you have to
 Example UWP configuration
 
 ```bash
-cmake . -A ARM64 -B build_uwp_arm64 -DCMAKE_SYSTEM_NAME:String=WindowsStore -DCMAKE_SYSTEM_VERSION:String="10.0"
+cmake . -A ARM64 -B build_uwp_arm64 -D CMAKE_SYSTEM_NAME:String=WindowsStore -D CMAKE_SYSTEM_VERSION:String="10.0"
 # Build `ktx.dll` only
 cmake -B build_uwp_arm64 --target ktx
 ```
+
+A `bash` shell is needed by the `mkversion` script used during the build. If you installed your `git` via the
+[Git for Windows](https://gitforwindows.org/) package you are good to go.
+Alternatives are
+[Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install) plus a Linux distribution or [Cygwin](https://www.cygwin.com/)  .
 
 The NSIS compiler is needed if you intend to build packages.
 
@@ -306,7 +348,36 @@ The KTX loader tests use libSDL 2.0.12+. You do not need SDL if you only wish to
 
 The KTX vulkan loader tests require a [Vulkan SDK](#vulkan-sdk)
 and the Open Asset Import Library [`libassimp`](#libassimp). You must
-install the former.
+install the former. The latter is included in this repo.
+
+##### Windows signing
+
+To sign applications and the NSIS installer you need to import your certificate to an Azure Key Vault or to the Current User or Local Machine certificate store.
+The latter can be done interactively with Windows' commands `certmgr` and
+`certlm` respectively. You need to set the following CMake variables to
+turn on signing:
+
+| Name  | Value |
+| ---: | ----- |
+| CODE\_SIGN\_KEY\_VAULT | Where the signing certificate is stored. One of _Azure_, _Machine_, _User_. |
+| CODE\_SIGN\_TIMESTAMP\_URL | URL of the timestamp server to use. Usually provided by the issuer of your certificate. Timestamping is required as it keeps the signatures valid even after certificate expiration.
+
+The following additional variables must be set if using Azure:
+
+| Name  | Value |
+| ---: | ----- |
+| AZURE\_KEY\_VAULT\_CERTIFICATE | Name of the certificate in Azure Key Vault.
+| AZURE\_KEY\_VAULT\_CLIENT\_ID | Id of an application (Client) registered with Azure that has permission to access the certificate.
+| AZURE\_KEY\_VAULT\_CLIENT\_SECRET | Secret to authenticate access to the Client.
+| AZURE\_KEY\_VAULT\_TENANT\_ID | Id of the Azure Active Directory (Tenant) holding the Client.
+| AZURE\_KEY\_VAULT\_URL | URL of the key vault
+
+If using a local certificate store the following variables must be set instead:
+
+| Name  | Value |
+| ---: | ----- |
+| LOCAL\_KEY\_VAULT\_SIGNING\_IDENTITY | Subject Name of code signing certificate. Displayed in 'Issued To' field of cert{lm,mgr}. Overriden by LOCAL\_KEY\_VAULT\_CERTIFICATE\_THUMBPRINT.
+| LOCAL\_KEY\_VAULT\_CERTIFICATE\_THUMBPRINT | Thumbprint of the certificate to use. Use this instead of LOCAL\_KEY\_VAULT\_SIGNING\_IDENTITY when you have multiple certificates with the same identity.
 
 #### OpenGL ES Emulator for Windows
 
@@ -326,6 +397,11 @@ Imagination Technologies' PowerVR emulator as that alone supports OpenGL ES
 <sup>*</sup>You will need to build ANGLE yourself and copy the libs
 and dlls to the appropriate directories under `other_lib/win`. Note
 that ANGLE's OpenGL ES 3 support is not yet complete.
+
+#### OpenCL for Windows
+
+To build `libktx` such that the Basis Universal encoders will use
+OpenCL you need an OpenCL driver, which is typically included in the driver for your GPU, and an OpenCL SDK. If no SDK is present, the build will use the headers and library that are included in this repo.
 
 ### Android
 
@@ -354,43 +430,130 @@ cmake --build "build-android"
 
 > Note: SSE has to be disabled currently (for ABIs x86 and x86_64) due to [an issue](https://github.com/BinomialLLC/basis_universal/pull/233).
 
+Conformance Test Suite
+------------
+
+The submodule of [CTS Repository](https://github.com/KhronosGroup/KTX-Software-CTS/) is optional and
+only required for running the CTS tests during KTX development. If the CTS test suit is desired it
+can be fetched during cloning with the additional `--recurse-submodules` git clone flag:
+
+```bash
+git clone --recurse-submodules git@github.com:KhronosGroup/KTX-Software.git
+```
+
+If the repository was already cloned or whenever the submodule ref changes the submodule has to be
+updated with:
+
+```bash
+git submodule update --init --recursive tests/cts
+```
+
+(For more information on submodules see the [git documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules).)
+
+Once the submodule is fetched the CTS tests can be enabled with the `KTX_FEATURE_TOOLS_CTS`
+cmake option during cmake configuration. Please note that for `KTX_FEATURE_TOOLS_CTS` to take
+effect both `KTX_FEATURE_TESTS` and `KTX_FEATURE_TOOLS` has to be also enabled.
+The CTS integrates into `ctest` so running `ctest` will also execute the CTS tests too.
+The test cases can be limited to the CTS tests with `ctest -R ktxToolTests`.
+
+Example for development workflow with CTS testing:
+
+```bash
+# Git clone and submodule fetch 
+git clone git@github.com:KhronosGroup/KTX-Software.git
+cd KTX-Software/
+git submodule update --init --recursive tests/cts
+# Configure 
+mkdir build
+cmake -B build . -DKTX_FEATURE_DOC=ON -DKTX_FEATURE_STATIC_LIBRARY=ON -DKTX_FEATURE_TOOLS_CTS=ON -DKTX_FEATURE_TESTS=ON -DKTX_FEATURE_TOOLS_CTS=ON
+# Build everything (depending on workflow its better to build the specific target like 'ktxtools'):
+cmake --build build --target all 
+# Run every test case:
+ctest --test-dir build
+# Run only the CTS test cases:
+ctest --test-dir build -R ktxToolTests
+```
+
+To create and update CTS test cases and about their specific features and usages
+see the [CTS documentation](https://github.com/KhronosGroup/KTX-Software-CTS/blob/main/README.md).
+
+Generated Source Files (project developers only)
+------------
+All but a few project developers can ignore this section. The files discussed here only need to be re-generated when formats are added to Vulkan or errors are discovered. These will be rare occurrences. 
+
+The following files related to the the VkFormat enum are generated from `vulkan_core.h`:
+
+- lib/vkformat_check.c
+- lib/vkformat_enum.h
+- lib/vkformat_list.inl
+- lib/vkformat_str.c
+- lib/vkformat_typesize.c
+- lib/dfd/dfd2vk.inl
+- lib/dfd/vk2dfd.inl
+- interface/java_binding/src/main/java/org/khronos/ktxVkFormat.java
+- interface/python\_binding/pyktx/vk\_format.py
+
+The following files are generated from the mapping database in the KTX-Specification repo by `generate_format_switches.rb`:
+
+- lib/vkFormat2glFormat.inl
+- lib/vkFormat2glInternalFormat.inl
+- lib/vkFormat2glType.inl
+
+All are generated by the `mkvk` target which is only configured if `KTX_GENERATE_VK_FILES` is set to `ON` at the time of CMake configuration. Since this setting is labelled *Advanced* it will not be visible in the CMake GUI unless `Advanced` is set.
+
+Configuring this target adds some dependencies which are discussed below.
+
 Dependencies
 ------------
 
+### awk
+
+Needed if you are [regenerating source files](#generatedsourcefiles(projectdevelopersonly)).
+
+Standard on GNU/Linux and macOS. Available on Windows as part of Git for
+Windows, WSL (Windows Subsystem for Linux) or Cygwin. Note that no CMake
+`AWK_EXECUTABLE` cache variable is used because *awk* is standard on GNU/Linux
+and macOS and on Windows *awk* tends to be available when *bash* is and there
+the *awk* script is invoked via *bash*.
+
+### bash
+
+Needed for the script that creates the version numbers from `git describe` output. Also needed if you are [regenerating source files](#generatedsourcefiles(projectdevelopersonly)).
+
+Standard on GNU/Linux and macOS. Available on Windows as part of Git for
+Windows, WSL (Windows Subsystem for Linux) or Cygwin.
+
 ### SDL
 
-Builds of SDL are provided in the KTX Git repo. These binaries
-were built from a post 2.0.12 changeset given below. However
-Standard SDL 2.0.12 works fine everywhere so you can download
-binaries from [libsdl.org](https://libsdl.org), if you prefer.
+Needed if you want to build the KTX load tests.
+
+On GNU/Linux install `libsdl2-dev` using your package manager.
+Builds of SDL are provided in the KTX Git repo for iOS, macOS and Windows. These
+binaries were built from the 2.0.20 tag. For macOS and Windows you can download
+binaries from [libsdl.org](https://www.libsdl.org/download-2.0.php), if you
+prefer.
 
 #### macOS Notes
 
-If you wish to use the provided version of SDL in other applications
-on your system, you can install the framework. Open a shell and enter
-the following command
+To build for both Intel and Apple Silicon you need a universal binary
+build of SDL as is provided in the KTX Git repo.
 
-```bash
-cp -R other_lib/mac/<configuration>/SDL2.framework /Library/Frameworks
-```
-
-replacing `<configuration>` with your choice of `Debug` or `Release`.
+For Apple Silicon you need at least release 2.0.14 of SDL.
 
 #### Building SDL from source
 
-As noted above, KTX uses a post SDL 2.0.12 changeset, no.
-[13845](https://hg.libsdl.org/SDL/rev/210fb62f0c96) in the canonical
-Mercurial repo at https://hg.libsdl.org/SDL or the automated GitHub
-mirror at https://github.com/spurious/SDL-mirror. Clone the repo,
-checkout changeset [13845](https://hg.libsdl.org/SDL/rev/210fb62f0c96)
-and follow the SDL build instructions.
+As noted above, KTX uses
+[SDL release 2.0.20](https://github.com/libsdl-org/SDL/tree/release-2.0.20) in
+the canonical Mercurial repo at https://github.com/libsdl-org/SDL. Clone the repo, checkout tag `release-2.0.20`and follow the SDL build instructions.
 
 Copy the results of your build to the appropriate place under the
 `other_lib` directory.
 
 ### Vulkan SDK
 
-Download [Vulkan SDK from Lunar G](https://vulkan.lunarg.com/sdk/home).
+Needed if you want to build the KTX Vulkan load tests, `vkloadtests`.
+
+Download the [Vulkan SDK from Lunar G](https://vulkan.lunarg.com/sdk/home).
 
 For Ubuntu (Xenial and Bionic) install packages are available. See [Getting
 Started - Ubuntu](https://vulkan.lunarg.com/doc/sdk/1.2.141.2/linux/getting_started_ubuntu.html) for detailed instructions.
@@ -400,21 +563,67 @@ For other GNU/Linux distributions a `.tar.gz` file is available. See
 
 For Windows install the Vulkan SDK via the installer.
 
-For iOS and macOS, install the Vulkan SDK by copying the content of the mounted `.dmg` to some location of choice. You need version 1.2.141.2 or later. This SDK contains MoltenVK (Vulkan Portability on Metal) for both iOS and macOS.
+For iOS and macOS, install the Vulkan SDK by downloading the macOS installer and double-clicking _install_ in the mounted `.dmg`. You need version 1.2.189.1 or later for Apple Silicon support. This SDK contains MoltenVK (Vulkan Portability on Metal) for both iOS and macOS.
 
 ### Doxygen
 
-You need this if you want to generate the _libktx_ and _ktxtools_
-documentation. You need a minimum of version 1.8.14 to generate
-the documentation correctly. You can download binaries and
-also find instructions for building it from source at [Doxygen
-downloads](http://www.stack.nl/~dimitri/doxygen/download.html). Make
+Needed if you want to generate the _libktx_ and _ktxtools_ documentation.
+
+You need a minimum of version 1.8.14 to generate the documentation correctly. You
+can download binaries and also find instructions for building it from source at
+[Doxygen downloads](http://www.stack.nl/~dimitri/doxygen/download.html). Make
 sure the directory containing the `doxygen` executable is in your `$PATH`.
 
 ### libassimp
 
-You need to install the Open Asset Import Library [`libassimp`](https://github.com/assimp/assimp) 
-on GNU/Linux and macOS if you want to build the KTX vulkan loader tests.
-The KTX Git repo has binaries for iOS and Windows. You'll find `libassimp` in the standard package manager on GNU/Linux. On macOS it can be installed via [MacPorts](https://www.macports.org/install.php) or [Brew](https://brew.sh/).
+Needed if you want to build the KTX load tests.
+
+On GNU/Linux you need to install the Open Asset Import Library [`libassimp-de`]
+using your package manager. The KTX Git repo has binaries for iOS, macOS and Windows.
+
+Canonical source is at https://github.com/assimp/assimp. 
+
+### OpenCL
+
+Needed if you want to enable the Basis Universal encoders to use OpenCL when
+building _libktx_.
+
+On GNU/Linux and Windows you need to install an OpenCL SDK and OpenCL driver. Drivers are standard on macOS & iOS and Xcode includes the SDK. On GNU/Linux the SDK can be installed using your package manager. On Windows, the place from which to download the SDK depends on your GPU vendor. In both cases, the GPU driver typically includes an OpenCL driver. 
+
+### Python
+
+*If you are building pyktx*, review the requirements in the [pyktx](interface/python_binding/README.md) README.
+
+### Perl
+
+Needed if you are [regenerating source files](#generatedsourcefiles(projectdevelopersonly)).
+
+On GNU/Linux install `perl` using your package manager. On macOS Perl is still
+included as of macOS Sonoma. In future you may need to install an additional
+package. On Windows, you need a Perl that writes Windows line endings (CRLF).
+Strawberry Perl via Chocolatey is recommended.
+
+```bash
+    choco install strawberryperl
+```
+
+### Ruby
+
+Needed if you are [regenerating source files](#generatedsourcefiles(projectdevelopersonly)).
+
+Ruby version 3 or later is required. On GNU/Linux install `ruby` using your
+package manager. On macOS install using a package manager such as Brew or with
+[RVM (Ruby Version Manager)](https://rvm.io/rvm/install). Note that Ruby is included in the Xcode command line tools but as of Xcode 15.3 is still version
+2.6.  On Windows use [RubyInstaller](https://rubyinstaller.org/).
+
+### KTX Specification Source
+
+Needed if you are [regenerating source files](#generatedsourcefiles(projectdevelopersonly)).
+
+`git clone https://github.com/KhronosGroup/KTX-Specification` to a peer
+directory of your KTX-Software workarea or set the value of the
+`KTX_SPECIFICATION` CMake cache variable to the location of your specification
+clone.
+
 
 {# vim: set ai ts=4 sts=4 sw=2 expandtab textwidth=75:}

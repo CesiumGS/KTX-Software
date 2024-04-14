@@ -8,8 +8,6 @@
 
 using namespace basist;
 
-basist::etc1_global_selector_codebook *g_pGlobal_codebook;
-
 #define MAGIC 0xDEADBEE1
 
 bool basis_file::open(const uint8_t *buffer, uint32_t newByteLength) {
@@ -21,7 +19,7 @@ bool basis_file::open(const uint8_t *buffer, uint32_t newByteLength) {
         byteLength = 0;
         return false;
     }
-    
+
     if (!m_transcoder.get_file_info(m_file, byteLength, fileinfo))
     {
         return false;
@@ -50,7 +48,7 @@ uint32_t basis_file::getNumImages() {
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
         return 0;
-    
+
     return m_transcoder.get_total_images(m_file, byteLength);
 }
 
@@ -66,14 +64,14 @@ uint32_t basis_file::getImageWidth(uint32_t image_index, uint32_t level_index) {
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
         return 0;
-    
+
     uint32_t orig_width, orig_height, total_blocks;
     if (!m_transcoder.get_image_level_desc(m_file, byteLength,
                                            image_index, level_index,
                                            orig_width, orig_height,
                                            total_blocks))
         return 0;
-    
+
     return orig_width;
 }
 
@@ -81,14 +79,14 @@ uint32_t basis_file::getImageHeight(uint32_t image_index, uint32_t level_index) 
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
         return 0;
-    
+
     uint32_t orig_width, orig_height, total_blocks;
     if (!m_transcoder.get_image_level_desc(m_file, byteLength,
                                            image_index, level_index,
                                            orig_width, orig_height,
                                            total_blocks))
         return 0;
-    
+
     return orig_height;
 }
 
@@ -111,10 +109,10 @@ uint32_t basis_file::getImageTranscodedSizeInBytes(uint32_t image_index, uint32_
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
         return 0;
-    
+
     if (format >= (uint32_t) basist::transcoder_texture_format::cTFTotalTextureFormats)
         return 0;
-    
+
     uint32_t orig_width, orig_height, total_blocks;
     if (!m_transcoder.get_image_level_desc(m_file, (uint32_t)byteLength,
                                            image_index, level_index, orig_width,
@@ -154,7 +152,7 @@ uint32_t basis_file::startTranscoding() {
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
         return 0;
-    
+
     return m_transcoder.start_transcoding(m_file, byteLength);
 }
 
@@ -162,10 +160,10 @@ uint32_t basis_file::transcodeImage(void* dst, uint32_t dst_size, uint32_t image
     assert(m_magic == MAGIC);
     if (m_magic != MAGIC)
         return 0;
-    
+
     if (format >= (uint32_t) basist::transcoder_texture_format::cTFTotalTextureFormats)
         return 0;
-    
+
     const transcoder_texture_format transcoder_format = static_cast<transcoder_texture_format>(format);
 
     uint32_t orig_width, orig_height, total_blocks;
@@ -178,9 +176,9 @@ uint32_t basis_file::transcodeImage(void* dst, uint32_t dst_size, uint32_t image
 
     if (basis_transcoder_format_is_uncompressed(transcoder_format))
     {
-        const uint32_t MAYBE_UNUSED bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
-        const uint32_t MAYBE_UNUSED bytes_per_line = orig_width * bytes_per_pixel;
-        const uint32_t MAYBE_UNUSED bytes_per_slice = bytes_per_line * orig_height;
+        MAYBE_UNUSED const uint32_t bytes_per_pixel = basis_get_uncompressed_bytes_per_pixel(transcoder_format);
+        MAYBE_UNUSED const uint32_t bytes_per_line = orig_width * bytes_per_pixel;
+        MAYBE_UNUSED const uint32_t bytes_per_slice = bytes_per_line * orig_height;
 
         assert(bytes_per_slice <= dst_size);
 
@@ -197,7 +195,7 @@ uint32_t basis_file::transcodeImage(void* dst, uint32_t dst_size, uint32_t image
     {
         uint32_t bytes_per_block = basis_get_bytes_per_block_or_pixel(transcoder_format);
 
-        uint32_t MAYBE_UNUSED required_size = total_blocks * bytes_per_block;
+        MAYBE_UNUSED uint32_t required_size = total_blocks * bytes_per_block;
 
         if (transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGB || transcoder_format == transcoder_texture_format::cTFPVRTC1_4_RGBA)
         {
@@ -227,9 +225,6 @@ extern "C" {
 KTX_BASISU_API void ktx_basisu_basis_init()
 {
     basisu_transcoder_init();
-    
-    if (!g_pGlobal_codebook)
-        g_pGlobal_codebook = new basist::etc1_global_selector_codebook(g_global_selector_cb_size, g_global_selector_cb);
 }
 
 #ifdef KTX_BASISU_C_BINDINGS
@@ -238,7 +233,7 @@ KTX_BASISU_API basis_file* ktx_basisu_create_basis() {
     basis_file* new_basis = new basis_file();
     return new_basis;
 }
-    
+
 KTX_BASISU_API uint32_t ktx_basisu_open_basis( basis_file* basis, const uint8_t * data, uint32_t length ) {
     return basis->open(data,length);
 }
@@ -246,7 +241,7 @@ KTX_BASISU_API uint32_t ktx_basisu_open_basis( basis_file* basis, const uint8_t 
 KTX_BASISU_API void ktx_basisu_close_basis( basis_file* basis ) {
     basis->close();
 }
-    
+
 KTX_BASISU_API void ktx_basisu_delete_basis( basis_file* basis ) {
     delete basis;
 }

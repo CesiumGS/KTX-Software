@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # -----------------------------------------------------------------------------
-# Copyright 2019-2021 Arm Limited
+# Copyright 2019-2022 Arm Limited
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not
 # use this file except in compliance with the License. You may obtain a copy
@@ -47,10 +47,9 @@ RESULT_THRESHOLD_FAIL = -0.00
 RESULT_THRESHOLD_3D_FAIL = -0.00
 
 
-TEST_BLOCK_SIZES = ["4x4", "5x5", "6x6", "8x8", "12x12",
-                    "3x3x3", "6x6x6"]
+TEST_BLOCK_SIZES = ["4x4", "5x5", "6x6", "8x8", "12x12", "3x3x3", "6x6x6"]
 
-TEST_QUALITIES = ["fastest", "fast", "medium", "thorough"]
+TEST_QUALITIES = ["fastest", "fast", "medium", "thorough", "verythorough", "exhaustive"]
 
 
 def is_3d(blockSize):
@@ -164,7 +163,7 @@ def format_result(image, reference, result):
 
 
 def run_test_set(encoder, testRef, testSet, quality, blockSizes, testRuns,
-                 keepOutput):
+                 keepOutput, threads):
     """
     Execute all tests in the test set.
 
@@ -178,6 +177,7 @@ def run_test_set(encoder, testRef, testSet, quality, blockSizes, testRuns,
         keepOutput (bool): Should the test preserve output images? This is
             only a hint and discarding output may be ignored if the encoder
             version used can't do it natively.
+        threads (int or None): The thread count to use.
 
     Returns:
         ResultSet: The test results.
@@ -203,7 +203,7 @@ def run_test_set(encoder, testRef, testSet, quality, blockSizes, testRuns,
             dat = (curCount, maxCount, blkSz, image.testFile)
             print("Running %u/%u %s %s ... " % dat, end='', flush=True)
             res = encoder.run_test(image, blkSz, "-%s" % quality, testRuns,
-                                   keepOutput)
+                                   keepOutput, threads)
             res = trs.Record(blkSz, image.testFile, res[0], res[1], res[2], res[3])
             resultSet.add_record(res)
 
@@ -250,16 +250,9 @@ def get_encoder_params(encoderName, referenceName, imageSet):
     if encoderName.startswith("ref"):
         _, version, simd = encoderName.split("-")
 
-        # 2.x variants
-        if version.startswith("2."):
-            encoder = te.Encoder2xRel(version, simd)
-            name = f"reference-{version}-{simd}"
-            outDir = "Test/Images/%s" % imageSet
-            refName = None
-            return (encoder, name, outDir, refName)
-
-        # 3.x variants
-        if version.startswith("3."):
+        # 2.x, 3.x, and 4.x variants
+        compatible2xPrefixes = ["2.", "3.", "4."]
+        if any(True for x in compatible2xPrefixes if version.startswith(x)):
             encoder = te.Encoder2xRel(version, simd)
             name = f"reference-{version}-{simd}"
             outDir = "Test/Images/%s" % imageSet
@@ -295,21 +288,21 @@ def parse_command_line():
     # All reference encoders
     refcoders = ["ref-1.7",
                  "ref-2.5-neon", "ref-2.5-sse2", "ref-2.5-sse4.1", "ref-2.5-avx2",
-                 "ref-3.0-neon", "ref-3.0-sse2", "ref-3.0-sse4.1", "ref-3.0-avx2",
-                 "ref-3.1-neon", "ref-3.1-sse2", "ref-3.1-sse4.1", "ref-3.1-avx2",
+                 "ref-3.7-neon", "ref-3.7-sse2", "ref-3.7-sse4.1", "ref-3.7-avx2",
+                 "ref-4.4-neon", "ref-4.4-sse2", "ref-4.4-sse4.1", "ref-4.4-avx2",
                  "ref-main-neon", "ref-main-sse2", "ref-main-sse4.1", "ref-main-avx2"]
 
     # All test encoders
-    testcoders = ["none", "neon", "sse2", "sse4.1", "avx2"]
-    testcodersAArch64 = ["none", "neon"]
-    testcodersX86 = ["none", "sse2", "sse4.1", "avx2"]
+    testcoders = ["none", "neon", "sse2", "sse4.1", "avx2", "native"]
+    testcodersAArch64 = ["neon"]
+    testcodersX86 = ["sse2", "sse4.1", "avx2"]
 
     coders = refcoders + testcoders + ["all-aarch64", "all-x86"]
 
     parser.add_argument("--encoder", dest="encoders", default="avx2",
                         choices=coders, help="test encoder variant")
 
-    parser.add_argument("--reference", dest="reference", default="ref-main-avx2",
+    parser.add_argument("--reference", dest="reference", default="ref-4.4-avx2",
                         choices=refcoders, help="reference encoder variant")
 
     astcProfile = ["ldr", "ldrs", "hdr", "all"]
@@ -340,7 +333,7 @@ def parse_command_line():
     parser.add_argument("--test-image", dest="testImage", default=None,
                         help="select a specific test image from the test set")
 
-    choices = list(TEST_QUALITIES) + ["all"]
+    choices = list(TEST_QUALITIES) + ["all", "all+"]
     parser.add_argument("--test-quality", dest="testQual", default="thorough",
                         choices=choices, help="select a specific test quality")
 
@@ -349,6 +342,10 @@ def parse_command_line():
 
     parser.add_argument("--keep-output", dest="keepOutput", default=False,
                         action="store_true", help="keep image output")
+
+    parser.add_argument("-j", dest="threads", default=None,
+                        type=int, help="thread count")
+
 
     args = parser.parse_args()
 
@@ -360,8 +357,14 @@ def parse_command_line():
     else:
         args.encoders = [args.encoders]
 
-    args.testQual = TEST_QUALITIES if args.testQual == "all" \
-        else [args.testQual]
+    if args.testQual == "all+":
+        args.testQual = TEST_QUALITIES
+    elif args.testQual == "all":
+        args.testQual = TEST_QUALITIES
+        args.testQual.remove("verythorough")
+        args.testQual.remove("exhaustive")
+    else:
+        args.testQual = [args.testQual]
 
     if not args.blockSizes or ("all" in args.blockSizes):
         args.blockSizes = TEST_BLOCK_SIZES
@@ -421,7 +424,7 @@ def main():
 
                 resultSet = run_test_set(encoder, testRef, testSet, quality,
                                          args.blockSizes, testRepeats,
-                                         args.keepOutput)
+                                         args.keepOutput, args.threads)
 
                 resultSet.save_to_file(testRes)
 
@@ -437,6 +440,10 @@ def main():
         return 1
 
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 
 
 if __name__ == "__main__":

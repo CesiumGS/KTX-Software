@@ -6,14 +6,13 @@
 The Official Khronos KTX Software Repository
 ---
 
-| GNU/Linux, iOS & OSX |  Windows | Documentation |
-|----------------------| :------: | :-----------: |
-| [![Build Status](https://travis-ci.com/KhronosGroup/KTX-Software.svg?branch=master)](https://travis-ci.com/KhronosGroup/KTX-Software) | [![Build status](https://ci.appveyor.com/api/projects/status/rj9bg8g2jphg3rc0/branch/master?svg=true)](https://ci.appveyor.com/project/msc-/ktx/branch/master) | [![Build status](https://codedocs.xyz/KhronosGroup/KTX-Software.svg)](https://codedocs.xyz/KhronosGroup/KTX-Software/) |
+| GNU/Linux, iOS, macOS & wasm | Windows | Android | Mingw |
+| :--------------------------: | :-----: | :-----: | :---: |
+| ![Build Status](https://travis-ci.com/KhronosGroup/KTX-Software.svg?branch=main) | ![Build status](https://github.com/KhronosGroup/KTX-Software/actions/workflows/windows.yml/badge.svg) | ![KTX-Software CI](https://github.com/KhronosGroup/KTX-Software/actions/workflows/android.yml/badge.svg) | ![KTX-Software CI](https://github.com/KhronosGroup/KTX-Software/actions/workflows/mingw.yml/badge.svg) |
 
-This is the official home of the source code
-for the Khronos KTX library and tools.
+This is the official home of the source code for the Khronos KTX library and tools.
 
-KTX (Khronos Texture) is a lightweight container for textures for OpenGL<sup>®</sup>, Vulkan<sup>®</sup> and other GPU APIs. KTX files contain all the parameters needed for texture loading. A single file can contain anything from a simple base-level 2D texture through to a cubemap array texture with mipmaps. Contained textures can be in a Basis Universal format, in any of the block-compressed formats supported by OpenGL family and Vulkan APIs and extensions or in an uncompressed single-plane format. Basis Universal currently encompasses two formats that can be quickly transcoded to any GPU-supported format: LZ/ETC1S, which combines block-compression and supercompression, and UASTC, a block-compressed format. Formats other than LZ/ETC1S can be supercompressed with Zstd.
+KTX (Khronos Texture) is a lightweight container for textures for OpenGL<sup>®</sup>, Vulkan<sup>®</sup> and other GPU APIs. KTX files contain all the parameters needed for texture loading. A single file can contain anything from a simple base-level 2D texture through to a cubemap array texture with mipmaps. Contained textures can be in a Basis Universal format, in any of the block-compressed formats supported by OpenGL family and Vulkan APIs and extensions or in an uncompressed single-plane format. Basis Universal currently encompasses two formats that can be quickly transcoded to any GPU-supported format: LZ/ETC1S, which combines block-compression and supercompression, and UASTC, a block-compressed format. Formats other than LZ/ETC1S can be supercompressed with Zstd and ZLIB.
 
 Download [KTX Software Releases](https://github.com/KhronosGroup/KTX-Software/releases)
 to get binary packages of the tools, library and development headers
@@ -27,20 +26,31 @@ The software consists of: (links are to source folders in the KhronosGroup repo)
 
 - *libktx* - a small library of functions for writing and reading KTX
 files, and instantiating OpenGL®, OpenGL ES™️ and Vulkan® textures
-from them. [`lib`](https://github.com/KhronosGroup/KTX-Software/tree/master/lib)
+from them. [`lib`](https://github.com/KhronosGroup/KTX-Software/tree/main/lib)
 - *libktx.{js,wasm}* - Web assembly version of libktx and
-Javascript wrapper. [`interface/js_binding`](https://github.com/KhronosGroup/KTX-Software/tree/master/interface/js_binding)
+Javascript wrapper. [`interface/js_binding`](https://github.com/KhronosGroup/KTX-Software/tree/main/interface/js_binding)
 - *msc\_basis\_transcoder.{js,wasm}* - Web assembly transcoder and
-Javascript wrapper for Basis Universal formats. For use with KTX parsers written in Javascript. [`interface/js_binding`](https://github.com/KhronosGroup/KTX-Software/tree/master/interface/js_binding)
-- *ktx2check* - a tool for validating KTX Version 2 format files. [`tools/ktx2check`](https://github.com/KhronosGroup/KTX-Software/tree/master/tools/ktx2check)
+Javascript wrapper for Basis Universal formats. For use with KTX parsers written in Javascript. [`interface/js_binding`](https://github.com/KhronosGroup/KTX-Software/tree/main/interface/js_binding)
+- *libktx.jar, libktx-jni* - Java wrapper and native interface library.
+[`interface/java_binding`](https://github.com/KhronosGroup/KTX-Software/tree/main/interface/java_binding)
+- *ktx* - a generic command line tool for managing KTX2 files with subcommands.[`tools/ktx`](https://github.com/KhronosGroup/KTX-Software/tree/main/tools/ktx)
+  - *ktx create* - Create a KTX2 file from various input files
+  - *ktx extract* - Export selected images from a KTX2 file
+  - *ktx encode* - Encode a KTX2 file
+  - *ktx transcode* - Transcode a KTX2 file
+  - *ktx info* - Prints information about a KTX2 file
+  - *ktx validate* - Validate a KTX2 file
+  - *ktx help* - Display help information about the ktx tools
+- *ktx2check* - a tool for validating KTX Version 2 format files. [`tools/ktx2check`](https://github.com/KhronosGroup/KTX-Software/tree/main/tools/ktx2check)
 - *ktx2ktx2* - a tool for converting a KTX Version 1 file to a KTX
-Version 2 file. [`tools/ktx2ktx2`](https://github.com/KhronosGroup/KTX-Software/tree/master/tools/ktx2ktx2)
+Version 2 file. [`tools/ktx2ktx2`](https://github.com/KhronosGroup/KTX-Software/tree/main/tools/ktx2ktx2)
 - *ktxinfo* - a tool to display information about a KTX file in
-human readable form. [`tools/ktxinfo`](https://github.com/KhronosGroup/KTX-Software/tree/master/tools/ktxinfo)
+human readable form. [`tools/ktxinfo`](https://github.com/KhronosGroup/KTX-Software/tree/main/tools/ktxinfo)
 - *ktxsc* - a tool to supercompress a KTX Version 2 file that
-contains uncompressed images.[`tools/ktxsc`](https://github.com/KhronosGroup/KTX-Software/tree/master/tools/ktxsc)
+contains uncompressed images.[`tools/ktxsc`](https://github.com/KhronosGroup/KTX-Software/tree/main/tools/ktxsc)
+- *pyktx* - Python wrapper
 - *toktx* - a tool to create KTX files from PNG, Netpbm or JPEG format images. It supports mipmap generation, encoding to
-Basis Universal formats and Zstd supercompression.[`tools/toktx`](https://github.com/KhronosGroup/KTX-Software/tree/master/tools/toktx)
+Basis Universal formats and Zstd supercompression.[`tools/toktx`](https://github.com/KhronosGroup/KTX-Software/tree/main/tools/toktx)
 
 See [CONTRIBUTING](CONTRIBUTING.md) for information about contributing.
 
@@ -73,33 +83,39 @@ A few files have `$Date$` keywords. If you care about having the proper
 dates shown or will be generating the documentation or preparing
 distribution archives, you **must** follow the instructions below.
 
+#### KTX-Software-CTS - Conformance Test Suite
+
+The tests and test files for the generic command line `ktx` tool can be found in a separate
+[CTS Repository](https://github.com/KhronosGroup/KTX-Software-CTS/). To save space and bandwidth this repository
+is included with git submodule and by default it is not required for building the libraries or the tools.
+For more information about building, running and extending the CTS tests see [BUILDING](BUILDING.md#Conformance-Test-Suite) 
+and [CTS README](https://github.com/KhronosGroup/KTX-Software-CTS/blob/main/README.md).
+
 #### <a id="kwexpansion"></a>$Date$ keyword expansion
 
-$Date$ keywords are expanded via a smudge & clean filter. To install
-the filter, issue the following commands in the root of your clone.
+$Date$ keywords are expanded via smudge & clean filters. To install
+the filters, issue the following commands in the root of your clone.
 
 On Unix (Linux, Mac OS X, etc.) platforms and Windows using Git for
 Windows' Git Bash or Cygwin's bash terminal:
 
 ```bash
 ./install-gitconfig.sh
-rm TODO.md lib/mainpage.md pkgdoc/pages.md tools/toktx/toktx.cc
-git checkout TODO.md lib/mainpage.md pkgdoc/pages.md tools/toktx/toktx.cc
+./ci_scripts/smudge_date.sh
 
 ```
 
-On Windows with the Command Prompt (requires `git.exe` in a directory
+On Windows PowerShell (requires `git.exe` in a directory
 on your %PATH%):
 
-```cmd
-install-gitconfig.bat
-del TODO.md TODO.md lib\mainpage.md pkgdoc\pages.md tools\toktx\toktx.cc
-git checkout TODO.md lib\mainpage.md pkgdoc\pages.md tools\toktx\toktx.cc
+```ps1
+install-gitconfig.ps1
+./ci_scripts/smudge_date.ps1
 ```
 
 The first command adds an [include] of the repo's `.gitconfig` to the
 local git config file `.git/config`, i.e. the one in your clone of the repo.
-`.gitconfig` contains the config of the "keyworder" filter. The remaining
-commands force a new checkout of the affected files to smudge them with the
-date. These two are unnecessary if you plan to edit these files.
-
+`.gitconfig` contains the config of the "keyworder" filter. The script in
+the second command forces a new checkout of the affected files to smudge them
+with their last modified date. This is unnecessary if you plan to edit
+these files.

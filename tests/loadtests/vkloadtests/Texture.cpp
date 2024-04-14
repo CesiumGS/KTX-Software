@@ -65,6 +65,7 @@ Texture::Texture(VulkanContext& vkctx,
     zoom = -2.5f;
     rotation = { 0.0f, 15.0f, 0.0f };
     tiling = vk::ImageTiling::eOptimal;
+    useSubAlloc = UseSuballocator::No;
     rgbcolor upperLeftColor{ 0.7f, 0.1f, 0.2f };
     rgbcolor lowerLeftColor{ 0.8f, 0.9f, 0.3f };
     rgbcolor upperRightColor{ 0.4f, 1.0f, 0.5f };
@@ -118,10 +119,21 @@ Texture::Texture(VulkanContext& vkctx,
         throw unsupported_ttype();
     }
 
-    ktxresult = ktxTexture_VkUploadEx(kTexture, &vdi, &texture,
-                                      static_cast<VkImageTiling>(tiling),
-                                      VK_IMAGE_USAGE_SAMPLED_BIT,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (useSubAlloc == UseSuballocator::Yes)
+    {
+        VkInstance vkInst = vkctx.instance;
+        VMA_CALLBACKS::InitVMA(vdi.physicalDevice, vdi.device, vkInst, vdi.deviceMemoryProperties);
+
+        ktxresult = ktxTexture_VkUploadEx_WithSuballocator(kTexture, &vdi, &texture,
+                                                           static_cast<VkImageTiling>(tiling),
+                                                           VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, &subAllocatorCallbacks);
+    }
+    else // Keep separate call so ktxTexture_VkUploadEx is also tested.
+        ktxresult = ktxTexture_VkUploadEx(kTexture, &vdi, &texture,
+                                          static_cast<VkImageTiling>(tiling),
+                                          VK_IMAGE_USAGE_SAMPLED_BIT,
+                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     
     if (KTX_SUCCESS != ktxresult) {
         std::stringstream message;
@@ -182,7 +194,7 @@ Texture::Texture(VulkanContext& vkctx,
 
     ktxTexture_Destroy(kTexture);
     ktxVulkanDeviceInfo_Destruct(&vdi);
-    
+
     try {
         prepare();
     } catch (std::exception& e) {
@@ -222,10 +234,11 @@ Texture::processArgs(std::string sArgs)
 {
     // Options descriptor
     struct argparser::option longopts[] = {
-      {"external",      argparser::option::no_argument,       &externalFile, 1},
-      {"linear-tiling", argparser::option::no_argument,       (int*)&tiling, (int)vk::ImageTiling::eLinear},
-      {"qcolor",        argparser::option::required_argument, NULL,          1},
-      {NULL,            argparser::option::no_argument,       NULL,          0}
+      {"external",      argparser::option::no_argument,       &externalFile,        1},
+      {"linear-tiling", argparser::option::no_argument,       (int*)&tiling,        (int)vk::ImageTiling::eLinear},
+      {"use-vma",       argparser::option::no_argument,       (int*)&useSubAlloc,   (int)UseSuballocator::Yes},
+      {"qcolor",        argparser::option::required_argument, NULL,                 1},
+      {NULL,            argparser::option::no_argument,       NULL,                 0}
     };
 
     argvector argv(sArgs);
@@ -279,7 +292,15 @@ Texture::cleanup()
     if (imageView)
         vkctx.device.destroyImageView(imageView);
 
-    ktxVulkanTexture_Destruct(&texture, vkctx.device, nullptr);
+
+    if (useSubAlloc == UseSuballocator::Yes)
+    {
+        VkDevice vkDev = vkctx.device;
+        (void)ktxVulkanTexture_Destruct_WithSuballocator(&texture, vkDev, VK_NULL_HANDLE, &subAllocatorCallbacks);
+        VMA_CALLBACKS::DestroyVMA();
+    }
+    else // Keep separate call so ktxVulkanTexture_Destruct is also tested.
+        ktxVulkanTexture_Destruct(&texture, vkctx.device, nullptr);
 
     if (pipelines.solid)
         vkctx.device.destroyPipeline(pipelines.solid);
@@ -462,8 +483,12 @@ Texture::setupDescriptorPool()
                                         2,
                                         static_cast<uint32_t>(poolSizes.size()),
                                         poolSizes.data());
-    vkctx.device.createDescriptorPool(&descriptorPoolInfo, nullptr,
-                                      &descriptorPool);
+    vk::Result res = vkctx.device.createDescriptorPool(&descriptorPoolInfo,
+                                                   nullptr,
+                                                   &descriptorPool);
+    if (res != vk::Result::eSuccess) {
+        throw bad_vulkan_alloc((int)res, "createDescriptorPool");
+    }
 }
 
 void
@@ -488,17 +513,25 @@ Texture::setupDescriptorSetLayout()
                               static_cast<uint32_t>(setLayoutBindings.size()),
                               setLayoutBindings.data());
 
-    vkctx.device.createDescriptorSetLayout(&descriptorLayout, nullptr,
-                                           &descriptorSetLayout);
+    vk::Result res
+        = vkctx.device.createDescriptorSetLayout(&descriptorLayout,
+                                                 nullptr,
+                                                 &descriptorSetLayout);
+    if (res != vk::Result::eSuccess) {
+        throw bad_vulkan_alloc((int)res, "createDescriptorSetLayout");
+    }
 
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo(
                                                     {},
                                                     1,
                                                     &descriptorSetLayout);
 
-    vkctx.device.createPipelineLayout(&pipelineLayoutCreateInfo,
-                                      nullptr,
-                                      &pipelineLayout);
+    res = vkctx.device.createPipelineLayout(&pipelineLayoutCreateInfo,
+                                            nullptr,
+                                            &pipelineLayout);
+    if (res != vk::Result::eSuccess) {
+        throw bad_vulkan_alloc((int)res, "createPipelineLayout");
+    }
 }
 
 void
@@ -509,7 +542,11 @@ Texture::setupDescriptorSet()
             1,
             &descriptorSetLayout);
 
-    vkctx.device.allocateDescriptorSets(&allocInfo, &descriptorSet);
+    vk::Result res
+        = vkctx.device.allocateDescriptorSets(&allocInfo, &descriptorSet);
+    if (res != vk::Result::eSuccess) {
+        throw bad_vulkan_alloc((int)res, "allocateDescriptorSets");
+    }
 
     // Image descriptor for the color map texture
     vk::DescriptorImageInfo texDescriptor(
@@ -596,7 +633,7 @@ Texture::preparePipelines()
 
     // Load shaders
     std::array<vk::PipelineShaderStageCreateInfo,2> shaderStages;
-    std::string filepath = getAssetPath() + "shaders/";
+    std::string filepath = getAssetPath();
     shaderStages[0] = loadShader(filepath + "texture.vert.spv",
                                 vk::ShaderStageFlagBits::eVertex);
     std::string fragShader = filepath;
@@ -622,9 +659,13 @@ Texture::preparePipelines()
     pipelineCreateInfo.stageCount = (uint32_t)shaderStages.size();
     pipelineCreateInfo.pStages = shaderStages.data();
 
-    vkctx.device.createGraphicsPipelines(vkctx.pipelineCache, 1,
-                                         &pipelineCreateInfo, nullptr,
-                                         &pipelines.solid);
+    vk::Result res
+        = vkctx.device.createGraphicsPipelines(vkctx.pipelineCache, 1,
+                                               &pipelineCreateInfo, nullptr,
+                                               &pipelines.solid);
+    if (res != vk::Result::eSuccess) {
+        throw bad_vulkan_alloc((int)res, "createGraphicsPipelines");
+    }
 }
 
 // Prepare and initialize uniform buffer containing shader uniforms
