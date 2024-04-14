@@ -7,17 +7,17 @@
 #include <iostream>
 #include "libktx-jni.h"
 
-extern "C" JNIEXPORT jint JNICALL Java_org_khronos_KtxTexture2_getOETF(JNIEnv *env, jobject thiz)
+extern "C" JNIEXPORT jint JNICALL Java_org_khronos_ktx_KtxTexture2_getOETF(JNIEnv *env, jobject thiz)
 {
     return ktxTexture2_GetOETF(get_ktx2_texture(env, thiz));
 }
 
-extern "C" JNIEXPORT jboolean JNICALL Java_org_khronos_KtxTexture2_getPremultipliedAlpha(JNIEnv *env, jobject thiz)
+extern "C" JNIEXPORT jboolean JNICALL Java_org_khronos_ktx_KtxTexture2_getPremultipliedAlpha(JNIEnv *env, jobject thiz)
 {
     return ktxTexture2_GetPremultipliedAlpha(get_ktx2_texture(env, thiz));
 }
 
-extern "C" JNIEXPORT jboolean JNICALL Java_org_khronos_KtxTexture2_needsTranscoding(JNIEnv *env, jobject thiz)
+extern "C" JNIEXPORT jboolean JNICALL Java_org_khronos_ktx_KtxTexture2_needsTranscoding(JNIEnv *env, jobject thiz)
 {
     return ktxTexture2_NeedsTranscoding(get_ktx2_texture(env, thiz));
 }
@@ -81,9 +81,11 @@ extern "C" JNIEXPORT jint JNICALL Java_org_khronos_ktx_KtxTexture2_transcodeBasi
 }
 
 extern "C" JNIEXPORT jobject JNICALL Java_org_khronos_ktx_KtxTexture2_create(JNIEnv *env,
-                                                                        jobject thiz,
-                                                                        jobject jcreateInfo,
-                                                                        jint jStorageAllocation)
+             jobject,
+
+             jobject jcreateInfo,
+
+             jint jStorageAllocation)
 {
     ktxTextureCreateInfo info;
     copy_ktx_texture_create_info(env, jcreateInfo, info);
@@ -112,7 +114,7 @@ extern "C" JNIEXPORT jobject JNICALL Java_org_khronos_ktx_KtxTexture2_create(JNI
 }
 
 extern "C" JNIEXPORT jobject JNICALL Java_org_khronos_ktx_KtxTexture2_createFromNamedFile(JNIEnv *env,
-                                                                                            jobject thiz,
+                                                                                            jobject,
                                                                                             jstring filename,
                                                                                             jint createFlags)
 {

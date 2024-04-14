@@ -3,7 +3,6 @@
 
 add_executable( ktx2ktx2
     ktx2ktx2.cpp
-    stdafx.h
 )
 create_version_header( tools/ktx2ktx2 ktx2ktx2 )
 
@@ -24,4 +23,4 @@ target_link_libraries(
 )
 
 set_tool_properties(ktx2ktx2)
-set_xcode_code_sign(ktx2ktx2)
+set_code_sign(ktx2ktx2)

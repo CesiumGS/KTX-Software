@@ -12,41 +12,37 @@
 // add ..\imdebug.lib to the libraries list in the project properties.
 #define IMAGE_DEBUG 0
 
-#include "stdafx.h"
+#include "ktxapp.h"
+
 #include <cstdlib>
 #include <errno.h>
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include <ktx.h>
 
-#include "ktx.h"
 #include "argparser.h"
+#include "version.h"
 #if (IMAGE_DEBUG) && defined(_DEBUG) && defined(_WIN32) && !defined(_WIN32_WCE)
 #  include "imdebug.h"
 #elif defined(IMAGE_DEBUG) && IMAGE_DEBUG
 #  undef IMAGE_DEBUG
 #  define IMAGE_DEBUG 0
 #endif
-#include "version.h"
 
 struct commandOptions {
-    _tstring      outfile;
-    _tstring      outdir;
-    bool         force;
-    std::vector<_tstring> infiles;
+    string      outfile;
+    string      outdir;
+    bool        force;
+    std::vector<string> infiles;
 
     commandOptions() {
         force = false;
     }
 };
 
-static _tstring appName;
-
-static void processCommandLine(int argc, _TCHAR* argv[],
-                               struct commandOptions& options);
-static void processOptions(argparser& parser, struct commandOptions& options);
 #if IMAGE_DEBUG
-static void dumpImage(_TCHAR* name, int width, int height, int components,
+static void dumpImage(char* name, int width, int height, int components,
                       int componentSize, bool isLuminance,
                       unsigned char* srcImage);
 #endif
@@ -56,7 +52,7 @@ using namespace std;
 /** @page ktxinfo ktxinfo
 @~English
 
-Print information about a KTX or KTX2 file.
+Print information about KTX or KTX2 files.
 
 @section ktxinfo_synopsis SYNOPSIS
     ktxinfo [options] [@e infile ...]
@@ -71,12 +67,7 @@ Print information about a KTX or KTX2 file.
     identifier on each side of the "KTX nn".
 
     The following options are available:
-    <dl>
-    <dt>--help</dt>
-    <dd>Print this usage message and exit.</dd>
-    <dt>--version</dt>
-    <dd>Print the version number of this program and exit.</dd>
-    </dl>
+    @snippet{doc} ktxapp.h ktxApp options
 
 @section ktxinfo_exitstatus EXIT STATUS
     @b ktxinfo exits 0 on success, 1 on command line errors and 2 if one of
@@ -91,11 +82,37 @@ Print information about a KTX or KTX2 file.
     Mark Callow, Edgewise Consulting www.edgewise-consulting.com
 */
 
-static void
-usage()
+#define QUOTE(x) #x
+#define STR(x) QUOTE(x)
+
+std::string myversion(STR(KTXINFO_VERSION));
+std::string mydefversion(STR(KTXINFO_DEFAULT_VERSION));
+
+class ktxInfo : public ktxApp {
+  public:
+    ktxInfo();
+
+    virtual int main(int argc, char* argv[]);
+    virtual void usage();
+
+  protected:
+    virtual bool processOption(argparser& parser, int opt);
+
+    ktxApp::commandOptions options;
+};
+
+
+ktxInfo::ktxInfo() : ktxApp(myversion, mydefversion, options)
 {
-    fprintf(stderr,
-        "Usage: %s [options] [<infile> ...]\n"
+
+}
+
+
+void
+ktxInfo::usage()
+{
+    cerr <<
+        "Usage: " << name << " [options] [<infile> ...]\n"
         "\n"
         "  infile ...   The file or files about which to print information. If\n"
         "               not specified, stdin is read.\n"
@@ -104,44 +121,33 @@ usage()
         "  set for UTF-8 you will see incorrect characters in output of the file\n"
         "  identifier on each side of the \"KTX nn\".\n"
         "\n"
-        "  Options are:\n"
-        "  --help       Print this usage message and exit.\n"
-        "  --version    Print the version number of this program and exit.\n"
-        "\n"
-        ,
-        appName.c_str());
+        "  Options are:\n\n";
+        ktxApp::usage();
 }
 
-#define QUOTE(x) #x
-#define STR(x) QUOTE(x)
+static ktxInfo ktxinfo;
+ktxApp& theApp = ktxinfo;
 
-static void
-version()
-{
-    std::cerr << appName << " " << STR(KTXINFO_VERSION) << std::endl;
-}
-
-
-int _tmain(int argc, _TCHAR* argv[])
+int
+ktxInfo::main(int argc, char* argv[])
 {
     FILE *inf;
-    struct commandOptions options;
     int exitCode = 0;
 
-    processCommandLine(argc, argv, options);
+    processCommandLine(argc, argv);
 
-    std::vector<_tstring>::const_iterator it;
+    std::vector<string>::const_iterator it;
     for (it = options.infiles.begin(); it < options.infiles.end(); it++) {
-        _tstring infile = *it;
+       string infile = *it;
 
-        if (!infile.compare(_T("-"))) {
+        if (!infile.compare("-")) {
             inf = stdin;
 #if defined(_WIN32)
             /* Set "stdin" to have binary mode */
             (void)_setmode( _fileno( stdin ), _O_BINARY );
 #endif
         } else {
-            inf = _tfopen(infile.c_str(), "rb");
+            inf = fopenUTF8(infile, "rb");
         }
 
         if (inf) {
@@ -149,24 +155,33 @@ int _tmain(int argc, _TCHAR* argv[])
 
             result = ktxPrintInfoForStdioStream(inf);
             if (result ==  KTX_FILE_UNEXPECTED_EOF) {
-                cerr << appName
+                cerr << name
                      << ": Unexpected end of file reading \""
-                     << (infile.compare(_T("-")) ? infile : "stdin" ) << "\"."
+                     << (infile.compare("-") ? infile : "stdin" ) << "\"."
                      << endl;
-                     exit(2);
+                exitCode = 2;
+                goto cleanup;
             }
             if (result == KTX_UNKNOWN_FILE_FORMAT) {
-                cerr << appName
-                     << ": " << (infile.compare(_T("-")) ? infile : "stdin")
+                cerr << name
+                     << ": " << (infile.compare("-") ? infile : "stdin")
                      << " is not a KTX or KTX2 file."
                      << endl;
-                     exitCode = 2;
-                     goto cleanup;
+                exitCode = 2;
+                goto cleanup;
+            }
+            if (result == KTX_FILE_READ_ERROR) {
+                cerr << name
+                    << ": Error reading \""
+                    << (infile.compare("-") ? infile : "stdin") << "\"."
+                    << strerror(errno) << endl;
+                exitCode = 2;
+                goto cleanup;
             }
         } else {
-            cerr << appName
+            cerr << name
                  << " could not open input file \""
-                 << (infile.compare(_T("-")) ? infile : "stdin") << "\". "
+                 << (infile.compare("-") ? infile : "stdin") << "\". "
                  << strerror(errno) << endl;
             exitCode = 2;
             goto cleanup;
@@ -178,107 +193,16 @@ cleanup:
 }
 
 
-static void processCommandLine(int argc, _TCHAR* argv[], struct commandOptions& options)
+bool
+ktxInfo::processOption(argparser&, int)
 {
-    int i;
-    size_t slash, dot;
-
-    appName = argv[0];
-      // For consistent Id, only use the stem of appName;
-    slash = appName.find_last_of(_T('\\'));
-    if (slash == _tstring::npos)
-      slash = appName.find_last_of(_T('/'));
-    if (slash != _tstring::npos)
-      appName.erase(0, slash+1);  // Remove directory name.
-    dot = appName.find_last_of(_T('.'));
-      if (dot != _tstring::npos)
-      appName.erase(dot, _tstring::npos); // Remove extension.
-
-    argparser parser(argc, argv);
-    processOptions(parser, options);
-
-    i = parser.optind;
-    if (argc - i > 0) {
-        for (; i < argc; i++) {
-            options.infiles.push_back(parser.argv[i]);
-        }
-    }
-
-    switch (options.infiles.size()) {
-      case 0:
-        options.infiles.push_back(_T("-")); // Use stdin
-        break;
-      case 1:
-        break;
-      default: {
-        /* Check for attempt to use stdin as one of the
-         * input files.
-         */
-        std::vector<_tstring>::const_iterator it;
-        for (it = options.infiles.begin(); it < options.infiles.end(); it++) {
-            if (it->compare(_T("-")) == 0) {
-                fprintf(stderr, "%s: cannot use stdin as one among many inputs.\n",
-                        appName.c_str());
-                usage();
-                exit(1);
-            }
-        }
-      }
-      break;
-    }
-}
-
-
-/*
- * @brief process potential command line options
- *
- * @return
- *
- * @param[in]     parser,     an @c argparser holding the options to process.
- * @param[in,out] options     commandOptions struct in which option information
- *                            is set.
- */
-static void
-processOptions(argparser& parser, struct commandOptions& /*options*/)
-{
-    int ch;
-    static struct argparser::option option_list[] = {
-        { "help", argparser::option::no_argument, NULL, 'h' },
-        { "version", argparser::option::no_argument, NULL, 'v' },
-        // -NSDocumentRevisionsDebugMode YES is appended to the end
-        // of the command by Xcode when debugging and "Allow debugging when
-        // using document Versions Browser" is checked in the scheme. It
-        // defaults to checked and is saved in a user-specific file not the
-        // pbxproj file so it can't be disabled in a generated project.
-        // Remove these from the arguments under consideration.
-        { "-NSDocumentRevisionsDebugMode", argparser::option::required_argument, NULL, 'i' },
-        { nullptr, argparser::option::no_argument, nullptr, 0 }
-    };
-
-    _tstring shortopts("hv");
-    while ((ch = parser.getopt(&shortopts, option_list, NULL)) != -1) {
-        switch (ch) {
-          case 0:
-            break;
-          case 'h':
-            usage();
-            exit(0);
-          case 'v':
-            version();
-            exit(0);
-          case '?':
-          case ':':
-          default:
-            usage();
-            exit(1);
-        }
-    }
+    return false;
 }
 
 
 #if IMAGE_DEBUG
 static void
-dumpImage(_TCHAR* name, int width, int height, int components, int componentSize,
+dumpImage(char* name, int width, int height, int components, int componentSize,
           bool isLuminance, unsigned char* srcImage)
 {
     char formatstr[2048];

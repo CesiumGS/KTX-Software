@@ -404,7 +404,7 @@ VulkanAppSDL::initializeVulkan()
 bool
 VulkanAppSDL::createInstance()
 {
-    VkResult MAYBE_UNUSED err;
+    MAYBE_UNUSED VkResult err;
     uint32_t instanceLayerCount = 0;
     std::vector<const char *>* instanceValidationLayers = nullptr;
 
@@ -592,7 +592,7 @@ VulkanAppSDL::createInstance()
 bool
 VulkanAppSDL::findGpu()
 {
-    vk::Result MAYBE_UNUSED err;
+    MAYBE_UNUSED vk::Result err;
     uint32_t gpuCount;
 
     // Make initial call to query gpu_count, then second call for gpu info.
@@ -778,7 +778,7 @@ VulkanAppSDL::createDevice()
     float queue_priorities[1] = {0.0};
     const vk::DeviceQueueCreateInfo queueInfo(
         {},
-        vkQueueFamilyIndex,
+        vkctx.swapchain.queueIndex,
         1,
         queue_priorities
     );
@@ -970,8 +970,8 @@ VulkanAppSDL::prepareDepthBuffer()
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
 
     VkMemoryRequirements mem_reqs;
-    VkResult U_ASSERT_ONLY err;
-    bool U_ASSERT_ONLY pass;
+    U_ASSERT_ONLY VkResult err;
+    U_ASSERT_ONLY bool pass;
 
     /* create image */
     err = vkCreateImage(vkctx.device, &image, NULL, &vkctx.depthBuffer.image);
@@ -1157,7 +1157,7 @@ VulkanAppSDL::prepareRenderPass()
         0,
         NULL,
     };
-    VkResult U_ASSERT_ONLY err;
+    U_ASSERT_ONLY VkResult err;
 
     err = vkCreateRenderPass(vkctx.device, &rp_info, NULL, &vkctx.renderPass);
     assert(!err);
@@ -1208,7 +1208,7 @@ VulkanAppSDL::prepareFramebuffers()
         w_height,
         1,
     };
-    VkResult U_ASSERT_ONLY err;
+    U_ASSERT_ONLY VkResult err;
     uint32_t i;
 
     vkctx.framebuffers.resize(vkctx.swapchain.imageCount);
@@ -1225,7 +1225,7 @@ VulkanAppSDL::prepareFramebuffers()
 void
 VulkanAppSDL::flushInitialCommands()
 {
-    VkResult U_ASSERT_ONLY err;
+    U_ASSERT_ONLY VkResult err;
 
     if (setupCmdBuffer == VK_NULL_HANDLE)
         return;
@@ -1288,12 +1288,12 @@ VulkanAppSDL::prepareTextOverlay()
         // Load the text rendering shaders
         std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
         VkPipelineShaderStageCreateInfo shaderStage;
-        std::string filepath = getAssetPath() + "shaders/textoverlay.vert.spv";
-        shaderStage = vkctx.loadShader(filepath, vk::ShaderStageFlagBits::eVertex);
+        std::string filepath = getAssetPath() + "textoverlay.vert.spv";
+        shaderStage = static_cast<VkPipelineShaderStageCreateInfo>(vkctx.loadShader(filepath, vk::ShaderStageFlagBits::eVertex));
         shaderStages.push_back(shaderStage);
         shaderModules.push_back(shaderStage.module);
-        filepath = getAssetPath() + "shaders/textoverlay.frag.spv";
-        shaderStage = vkctx.loadShader(filepath, vk::ShaderStageFlagBits::eFragment);
+        filepath = getAssetPath() + "textoverlay.frag.spv";
+        shaderStage = static_cast<VkPipelineShaderStageCreateInfo>(vkctx.loadShader(filepath, vk::ShaderStageFlagBits::eFragment));
         shaderStages.push_back(shaderStage);
         shaderModules.push_back(shaderStage.module);
 
@@ -1410,7 +1410,7 @@ VulkanAppSDL::setImageLayout(VkImage image, VkImageAspectFlags aspectMask,
         VkImageLayout new_image_layout,
         VkImageAspectFlags srcAccessMask)
 {
-    VkResult U_ASSERT_ONLY err;
+    U_ASSERT_ONLY VkResult err;
 
     if (setupCmdBuffer == VK_NULL_HANDLE) {
         const VkCommandBufferAllocateInfo cbaInfo = {

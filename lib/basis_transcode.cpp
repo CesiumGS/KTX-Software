@@ -138,8 +138,11 @@ ktxTexture2_transcodeUastc(ktxTexture2* This,
     uint32_t* BDB = This->pDfd + 1;
     khr_df_model_e colorModel = (khr_df_model_e)KHR_DFDVAL(BDB, MODEL);
     if (colorModel != KHR_DF_MODEL_UASTC
+        // Constructor has checked color model matches BASIS_LZ.
         && This->supercompressionScheme != KTX_SS_BASIS_LZ)
-    return KTX_INVALID_OPERATION; // Not in a transcodable format.
+    {
+        return KTX_INVALID_OPERATION; // Not in a transcodable format.
+    }
 
     DECLARE_PRIVATE(priv, This);
     if (This->supercompressionScheme == KTX_SS_BASIS_LZ) {
@@ -174,7 +177,6 @@ ktxTexture2_transcodeUastc(ktxTexture2* This,
             }
         }
     } else {
-        assert(colorModel == KHR_DF_MODEL_UASTC);
         uint32_t channelId = KHR_DFDSVAL(BDB, 0, CHANNELID);
         if (channelId == KHR_DF_CHANNEL_UASTC_RGBA)
             alphaContent = eAlpha;
@@ -317,9 +319,13 @@ ktxTexture2_transcodeUastc(ktxTexture2* This,
              // Load pending. Complete it.
             result = ktxTexture2_LoadImageData(This, NULL, 0);
             if (result != KTX_SUCCESS)
+            {
+                ktxTexture2_Destroy(prototype);
                 return result;
+            }
         } else {
             // No data to transcode.
+            ktxTexture2_Destroy(prototype);
             return KTX_INVALID_OPERATION;
         }
     }
@@ -366,13 +372,16 @@ ktxTexture2_transcodeUastc(ktxTexture2* This,
         This->dataSize = prototype->dataSize;
         prototype->pData = 0;
         prototype->dataSize = 0;
+        // Free SGD data
+        This->_private->_sgdByteLength = 0;
+        if (This->_private->_supercompressionGlobalData) {
+            free(This->_private->_supercompressionGlobalData);
+            This->_private->_supercompressionGlobalData = NULL;
+        }
     }
     ktxTexture2_Destroy(prototype);
     return result;
  }
-
-static basist::etc1_global_selector_codebook
-            global_codebook(g_global_selector_cb_size, g_global_selector_cb);
 
 /**
  * @memberof ktxTexture2 @private
@@ -490,7 +499,7 @@ ktxTexture2_transcodeLzEtc1s(ktxTexture2* This,
     // FIXME: Do more validation.
 
     // Prepare low-level transcoder for transcoding slices.
-    basist::basisu_lowlevel_etc1s_transcoder bit(&global_codebook);
+    basist::basisu_lowlevel_etc1s_transcoder bit;
 
     // basisu_transcoder_state is used to find the previous frame when
     // decoding a video P-Frame. It tracks the previous frame for each mip

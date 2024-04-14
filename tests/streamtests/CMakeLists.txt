@@ -4,6 +4,8 @@
 add_executable( streamtests
     streamtests.cc
 )
+set_test_properties(streamtests)
+set_code_sign(streamtests)
 
 target_include_directories(
     streamtests
@@ -34,6 +36,8 @@ PRIVATE
 )
 
 gtest_discover_tests( streamtests
-    TEST_PREFIX streamtest
+    TEST_PREFIX streamtest.
+    # With the 5s default we get periodic timeouts on Travis & GitHub CI.
+    DISCOVERY_TIMEOUT 20
     EXTRA_ARGS "${PROJECT_SOURCE_DIR}/tests/testimages/"
 )

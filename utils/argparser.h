@@ -13,46 +13,36 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#if defined(_WIN32)
-  #include <tchar.h>
-#else
-  #define _TCHAR char
-  #define _T(x) x
-#endif
-#if defined(_UNICODE)
-  #define _tstring std::wstring
-#else
-  #define _tstring std::string
-#endif
 
-
-class argvector : public std::vector<_tstring> {
+class argvector : public std::vector<std::string> {
   public:
     argvector() { };
-    argvector(const _tstring& argstring);
-    argvector(int argc, const _TCHAR* const* argv);
+    argvector(const std::string& argstring);
+    argvector(int argc, const char* const* argv);
 };
 
 class argparser {
   public:
     struct option {
         const char* name;
-        enum {no_argument, required_argument, optional_argument} has_arg;
+        enum has_arg_t {no_argument, required_argument, optional_argument} has_arg;
         int* flag;
         int val;
+
+        option(const char* name, has_arg_t has_arg, int* flag, int val) : name(name), has_arg(has_arg), flag(flag), val(val) {}
     };
 
-    _tstring optarg;
+    std::string optarg;
     unsigned int optind;
     argvector argv;
 
     argparser(argvector& argv, unsigned int startindex = 0)
         : optind(startindex), argv(argv) { }
 
-    argparser(int argc, const _TCHAR* const* argv1)
+    argparser(int argc, const char* const* argv1)
         : optind(1), argv(argc, argv1)  { }
 
-    int getopt(_tstring* shortopts, const struct option* longopts,
+    int getopt(std::string* shortopts, const struct option* longopts,
                int* longindex = nullptr);
 };
 
@@ -62,8 +52,8 @@ class argparser {
 // does not check whether the skipped characters are the same as it
 struct skip
 {
-    const _TCHAR* text;
-    skip(const _TCHAR* text) : text(text) {}
+    const char* text;
+    skip(const char* text) : text(text) {}
 };
 
 std::istream& operator >> (std::istream& stream, const skip& x);

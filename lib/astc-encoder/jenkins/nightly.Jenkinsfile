@@ -41,7 +41,7 @@ pipeline {
                     - name: artifactory-ms-docker
                   containers:
                     - name: astcenc
-                      image: mobile-studio--docker.eu-west-1.artifactory.aws.arm.com/astcenc:3.0.0
+                      image: mobile-studio--docker.eu-west-1.artifactory.aws.arm.com/astcenc:3.1.0
                       command:
                         - sleep
                       args:
@@ -72,7 +72,7 @@ pipeline {
                 sh '''
                   mkdir build_rel
                   cd build_rel
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DISA_NONE=ON -DUNITTEST=ON -DPACKAGE=x64 ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_ISA_NONE=ON -DASTCENC_UNITTEST=ON -DASTCENC_PACKAGE=x64 ..
                   make install package -j4
                 '''
               }
@@ -82,7 +82,7 @@ pipeline {
                 sh '''
                   mkdir build_dbg
                   cd build_dbg
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DISA_NONE=ON ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_ISA_NONE=ON ..
                   make -j4
                 '''
               }
@@ -101,6 +101,7 @@ pipeline {
                   python3 ./Test/astc_test_functional.py --encoder=sse2
                   python3 ./Test/astc_test_functional.py --encoder=sse4.1
                   python3 ./Test/astc_test_functional.py --encoder=avx2
+                  python3 ./Test/astc_test_image.py --encoder=none --test-set Small --test-quality medium
                   python3 ./Test/astc_test_image.py --encoder=all-x86 --test-set Small --test-quality medium
                 '''
                 dir('build_rel') {
@@ -111,7 +112,7 @@ pipeline {
           }
         }
         /* Build for Windows on x86-64 using MSVC */
-        stage('Windows') {
+        stage('Windows MSVC') {
           agent {
             label 'Windows'
           }
@@ -127,7 +128,7 @@ pipeline {
                   call c:\\progra~2\\micros~1\\2019\\buildtools\\vc\\auxiliary\\build\\vcvars64.bat
                   mkdir build_rel
                   cd build_rel
-                  cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DPACKAGE=x64 ..
+                  cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_PACKAGE=x64-cl ..
                   nmake install package
                 '''
               }
@@ -138,7 +139,7 @@ pipeline {
                   call c:\\progra~2\\micros~1\\2019\\buildtools\\vc\\auxiliary\\build\\vcvars64.bat
                   mkdir build_dbg
                   cd build_dbg
-                  cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DISA_NONE=ON ..
+                  cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_ISA_NONE=ON ..
                   nmake
                 '''
               }
@@ -146,7 +147,59 @@ pipeline {
             stage('Stash') {
               steps {
                 dir('build_rel') {
-                  stash name: 'astcenc-windows-x64', includes: '*.zip'
+                  stash name: 'astcenc-windows-x64-cl', includes: '*.zip'
+                }
+              }
+            }
+            stage('Test') {
+              steps {
+                bat '''
+                  set Path=c:\\Python38;c:\\Python38\\Scripts;%Path%
+                  call python ./Test/astc_test_image.py --test-set Small --test-quality medium
+                '''
+              }
+            }
+          }
+        }
+        /* Build for Windows on x86-64 using MSVC + ClangCL */
+        stage('Windows ClangCL') {
+          agent {
+            label 'Windows'
+          }
+          stages {
+            stage('Clean') {
+              steps {
+                bat 'git clean -ffdx'
+              }
+            }
+            stage('Build R') {
+              steps {
+                bat '''
+                  call c:\\progra~2\\micros~1\\2019\\buildtools\\vc\\auxiliary\\build\\vcvars64.bat
+                  mkdir build_rel
+                  cd build_rel
+                  cmake -G "Visual Studio 16 2019" -T ClangCL -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_PACKAGE=x64-clangcl ..
+                  msbuild astcencoder.sln -property:Configuration=Release
+                  msbuild PACKAGE.vcxproj -property:Configuration=Release
+                  msbuild INSTALL.vcxproj -property:Configuration=Release
+                '''
+              }
+            }
+            stage('Build D') {
+              steps {
+                bat '''
+                  call c:\\progra~2\\micros~1\\2019\\buildtools\\vc\\auxiliary\\build\\vcvars64.bat
+                  mkdir build_dbg
+                  cd build_dbg
+                  cmake -G "Visual Studio 16 2019" -T ClangCL -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON ..
+                  msbuild astcencoder.sln -property:Configuration=Debug
+                '''
+              }
+            }
+            stage('Stash') {
+              steps {
+                dir('build_rel') {
+                  stash name: 'astcenc-windows-x64-clangcl', includes: '*.zip'
                 }
               }
             }
@@ -163,7 +216,7 @@ pipeline {
         /* Build for macOS on x86-64 using Clang */
         stage('macOS') {
           agent {
-            label 'mac'
+            label 'mac && x86_64'
           }
           stages {
             stage('Clean') {
@@ -176,7 +229,7 @@ pipeline {
                 sh '''
                   mkdir build_rel
                   cd build_rel
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DPACKAGE=x64 ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_PACKAGE=x64 ..
                   make install package -j4
                 '''
               }
@@ -186,7 +239,7 @@ pipeline {
                 sh '''
                   mkdir build_dbg
                   cd build_dbg
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DISA_NONE=ON ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_ISA_NONE=ON ..
                   make -j4
                 '''
               }
@@ -246,8 +299,11 @@ spec:
             dir('upload/linux-x64') {
               unstash 'astcenc-linux-x64'
             }
-            dir('upload/windows-x64') {
-              unstash 'astcenc-windows-x64'
+            dir('upload/windows-x64-cl') {
+              unstash 'astcenc-windows-x64-cl'
+            }
+            dir('upload/windows-x64-clangcl') {
+              unstash 'astcenc-windows-x64-clangcl'
             }
             dir('upload/macos-x64') {
               unstash 'astcenc-macos-x64'

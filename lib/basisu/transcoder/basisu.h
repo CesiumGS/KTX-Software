@@ -21,6 +21,11 @@
 	#pragma warning (disable : 4127) // warning C4127: conditional expression is constant
 	#pragma warning (disable : 4530) // C++ exception handler used, but unwind semantics are not enabled.
 
+	// Slamming this off always for v1.16 because we've gotten rid of most std containers.
+	#ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL
+		#define BASISU_NO_ITERATOR_DEBUG_LEVEL (1)
+	#endif
+
 	#ifndef BASISU_NO_ITERATOR_DEBUG_LEVEL
 		//#define _HAS_ITERATOR_DEBUGGING 0
 
@@ -169,6 +174,10 @@ namespace basisu
 	{ 
 		if (n)
 		{
+			if (vec.size())
+			{
+				assert((pObjs + n) <= vec.begin() || (pObjs >= vec.end()));
+			}
 			const size_t cur_s = vec.size();
 			vec.resize(cur_s + n);
 			memcpy(&vec[cur_s], pObjs, sizeof(R) * n);
@@ -177,6 +186,7 @@ namespace basisu
 
 	template<typename T> inline void append_vector(T &vec, const T &other_vec)
 	{
+		assert(&vec != &other_vec);
 		if (other_vec.size())
 			append_vector(vec, &other_vec[0], other_vec.size());
 	}
@@ -296,7 +306,17 @@ namespace basisu
 			memcpy(m_bytes, rhs.m_bytes, sizeof(m_bytes)); 
 			return *this;
 		}
-
+// The casts for > 4 bytes are strange. Has been reported to basis_universal.
+// See https://github.com/BinomialLLC/basis_universal/issues/306.
+// Since I don't know the intention or correct fix, suppress the associated
+// warning. We get this only in CI when it is compiling for iOS build-only
+// device.
+#if __clang__
+  #pragma clang diagnostic push
+  #if __has_warning("-Wshorten-64-to-32")
+    #pragma clang diagnostic ignored "-Wshorten-64-to-32"
+  #endif
+#endif
 		inline operator uint32_t() const
 		{
 			switch (NumBytes)
@@ -321,25 +341,31 @@ namespace basisu
 				{
 					uint32_t l = read_le_dword(m_bytes);
 					uint32_t h = m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+                    // I'm pretty sure compilers just return the low 32-bits
+                    // when casting a 64-bit value to 32-bit so simply
+                    // returning l should work. But in case I'm missing
+                    // something useful that is being done, I'm just adding
+                    // casts to avoid the compiler warnings. See
+                    // https://github.com/BinomialLLC/basis_universal/issues/306.
+					return static_cast<uint32_t>(static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U));
 				}
 				case 6:
 				{
 					uint32_t l = read_le_dword(m_bytes);
 					uint32_t h = (m_bytes[5] << 8U) | m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+					return static_cast<uint32_t>(static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U));
 				}
 				case 7:
 				{
 					uint32_t l = read_le_dword(m_bytes);
 					uint32_t h = (m_bytes[6] << 16U) | (m_bytes[5] << 8U) | m_bytes[4];
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+					return static_cast<uint32_t>(static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U));
 				}
 				case 8:  
 				{
 					uint32_t l = read_le_dword(m_bytes);
 					uint32_t h = read_le_dword(m_bytes + 4);
-					return static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U);
+					return static_cast<uint32_t>(static_cast<uint64_t>(l) | (static_cast<uint64_t>(h) << 32U));
 				}
 				default: 
 				{
@@ -349,6 +375,9 @@ namespace basisu
 			}
 		}
 	};
+#if __clang__
+  #pragma clang diagnostic pop
+#endif
 
 	enum eZero { cZero };
 	enum eNoClamp { cNoClamp };

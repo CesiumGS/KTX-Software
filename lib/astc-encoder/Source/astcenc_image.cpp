@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2021 Arm Limited
+// Copyright 2011-2022 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -143,12 +143,12 @@ static vfloat4 encode_texel_lns(
 	vmask4 lns_mask
 ) {
 	vfloat4 datav_unorm = data * 65535.0f;
-	vfloat4 datav_lns   = float_to_lns(data);
+	vfloat4 datav_lns = float_to_lns(data);
 	return select(datav_unorm, datav_lns, lns_mask);
 }
 
 /* See header for documentation. */
-void fetch_image_block(
+void load_image_block(
 	astcenc_profile decode_mode,
 	const astcenc_image& img,
 	image_block& blk,
@@ -173,8 +173,10 @@ void fetch_image_block(
 	int idx = 0;
 
 	vfloat4 data_min(1e38f);
+	vfloat4 data_mean(0.0f);
+	vfloat4 data_mean_scale(1.0f / static_cast<float>(bsd.texel_count));
 	vfloat4 data_max(-1e38f);
-	bool grayscale = true;
+	vmask4 grayscalev(true);
 
 	// This works because we impose the same choice everywhere during encode
 	uint8_t rgb_lns = (decode_mode == ASTCENC_PRF_HDR) ||
@@ -225,12 +227,10 @@ void fetch_image_block(
 
 				// Compute block metadata
 				data_min = min(data_min, datav);
+				data_mean += datav * data_mean_scale;
 				data_max = max(data_max, datav);
 
-				if (grayscale && (datav.lane<0>() != datav.lane<1>() || datav.lane<0>() != datav.lane<2>()))
-				{
-					grayscale = false;
-				}
+				grayscalev = grayscalev & (datav.swz<0,0,0,0>() == datav.swz<1,1,2,2>());
 
 				blk.data_r[idx] = datav.lane<0>();
 				blk.data_g[idx] = datav.lane<1>();
@@ -259,12 +259,80 @@ void fetch_image_block(
 
 	// Store block metadata
 	blk.data_min = data_min;
+	blk.data_mean = data_mean;
 	blk.data_max = data_max;
-	blk.grayscale = grayscale;
+	blk.grayscale = all(grayscalev);
 }
 
 /* See header for documentation. */
-void write_image_block(
+void load_image_block_fast_ldr(
+	astcenc_profile decode_mode,
+	const astcenc_image& img,
+	image_block& blk,
+	const block_size_descriptor& bsd,
+	unsigned int xpos,
+	unsigned int ypos,
+	unsigned int zpos,
+	const astcenc_swizzle& swz
+) {
+	(void)swz;
+	(void)decode_mode;
+
+	unsigned int xsize = img.dim_x;
+	unsigned int ysize = img.dim_y;
+
+	blk.xpos = xpos;
+	blk.ypos = ypos;
+	blk.zpos = zpos;
+
+	vfloat4 data_min(1e38f);
+	vfloat4 data_mean = vfloat4::zero();
+	vfloat4 data_max(-1e38f);
+	vmask4 grayscalev(true);
+	int idx = 0;
+
+	const uint8_t* plane = static_cast<const uint8_t*>(img.data[0]);
+	for (unsigned int y = ypos; y < ypos + bsd.ydim; y++)
+	{
+		unsigned int yi = astc::min(y, ysize - 1);
+
+		for (unsigned int x = xpos; x < xpos + bsd.xdim; x++)
+		{
+			unsigned int xi = astc::min(x, xsize - 1);
+
+			vint4 datavi = vint4(plane + (4 * xsize * yi) + (4 * xi));
+			vfloat4 datav = int_to_float(datavi) * (65535.0f / 255.0f);
+
+			// Compute block metadata
+			data_min = min(data_min, datav);
+			data_mean += datav;
+			data_max = max(data_max, datav);
+
+			grayscalev = grayscalev & (datav.swz<0,0,0,0>() == datav.swz<1,1,2,2>());
+
+			blk.data_r[idx] = datav.lane<0>();
+			blk.data_g[idx] = datav.lane<1>();
+			blk.data_b[idx] = datav.lane<2>();
+			blk.data_a[idx] = datav.lane<3>();
+
+			idx++;
+		}
+	}
+
+	// Reverse the encoding so we store origin block in the original format
+	blk.origin_texel = blk.texel(0) / 65535.0f;
+
+	// Store block metadata
+	blk.rgb_lns[0] = 0;
+	blk.alpha_lns[0] = 0;
+	blk.data_min = data_min;
+	blk.data_mean = data_mean / static_cast<float>(bsd.texel_count);
+	blk.data_max = data_max;
+	blk.grayscale = all(grayscalev);
+}
+
+/* See header for documentation. */
+void store_image_block(
 	astcenc_image& img,
 	const image_block& blk,
 	const block_size_descriptor& bsd,
@@ -273,24 +341,21 @@ void write_image_block(
 	unsigned int zpos,
 	const astcenc_swizzle& swz
 ) {
-	unsigned int xsize = img.dim_x;
-	unsigned int ysize = img.dim_y;
-	unsigned int zsize = img.dim_z;
-
+	unsigned int x_size = img.dim_x;
 	unsigned int x_start = xpos;
-	unsigned int x_end = std::min(xsize, xpos + bsd.xdim);
-	unsigned int x_nudge = bsd.xdim - (x_end - x_start);
+	unsigned int x_end = astc::min(x_size, xpos + bsd.xdim);
+	unsigned int x_count = x_end - x_start;
+	unsigned int x_nudge = bsd.xdim - x_count;
 
+	unsigned int y_size = img.dim_y;
 	unsigned int y_start = ypos;
-	unsigned int y_end = std::min(ysize, ypos + bsd.ydim);
-	unsigned int y_nudge = (bsd.ydim - (y_end - y_start)) * bsd.xdim;
+	unsigned int y_end = astc::min(y_size, ypos + bsd.ydim);
+	unsigned int y_count = y_end - y_start;
+	unsigned int y_nudge = (bsd.ydim - y_count) * bsd.xdim;
 
+	unsigned int z_size = img.dim_z;
 	unsigned int z_start = zpos;
-	unsigned int z_end = std::min(zsize, zpos + bsd.zdim);
-
-	float data[7];
-	data[ASTCENC_SWZ_0] = 0.0f;
-	data[ASTCENC_SWZ_1] = 1.0f;
+	unsigned int z_end = astc::min(z_size, zpos + bsd.zdim);
 
 	// True if any non-identity swizzle
 	bool needs_swz = (swz.r != ASTCENC_SWZ_R) || (swz.g != ASTCENC_SWZ_G) ||
@@ -310,47 +375,68 @@ void write_image_block(
 
 			for (unsigned int y = y_start; y < y_end; y++)
 			{
-				for (unsigned int x = x_start; x < x_end; x++)
-				{
-					vint4 colori = vint4::zero();
+				uint8_t* data8_row = data8 + (4 * x_size * y) + (4 * x_start);
 
-					if (blk.data_r[idx] == std::numeric_limits<float>::quiet_NaN())
+				for (unsigned int x = 0; x < x_count; x += ASTCENC_SIMD_WIDTH)
+				{
+					unsigned int max_texels = ASTCENC_SIMD_WIDTH;
+					unsigned int used_texels = astc::min(x_count - x, max_texels);
+
+					// Unaligned load as rows are not always SIMD_WIDTH long
+					vfloat data_r(blk.data_r + idx);
+					vfloat data_g(blk.data_g + idx);
+					vfloat data_b(blk.data_b + idx);
+					vfloat data_a(blk.data_a + idx);
+
+					vint data_ri = float_to_int_rtn(min(data_r, 1.0f) * 255.0f);
+					vint data_gi = float_to_int_rtn(min(data_g, 1.0f) * 255.0f);
+					vint data_bi = float_to_int_rtn(min(data_b, 1.0f) * 255.0f);
+					vint data_ai = float_to_int_rtn(min(data_a, 1.0f) * 255.0f);
+
+					if (needs_swz)
 					{
-						// Can't display NaN - show magenta error color
-						colori = vint4(0xFF, 0x00, 0xFF, 0xFF);
-					}
-					else if (needs_swz)
-					{
-						data[ASTCENC_SWZ_R] = blk.data_r[idx];
-						data[ASTCENC_SWZ_G] = blk.data_g[idx];
-						data[ASTCENC_SWZ_B] = blk.data_b[idx];
-						data[ASTCENC_SWZ_A] = blk.data_a[idx];
+						vint swizzle_table[7];
+						swizzle_table[ASTCENC_SWZ_0] = vint(0);
+						swizzle_table[ASTCENC_SWZ_1] = vint(255);
+						swizzle_table[ASTCENC_SWZ_R] = data_ri;
+						swizzle_table[ASTCENC_SWZ_G] = data_gi;
+						swizzle_table[ASTCENC_SWZ_B] = data_bi;
+						swizzle_table[ASTCENC_SWZ_A] = data_ai;
 
 						if (needs_z)
 						{
-							float xcoord = (data[0] * 2.0f) - 1.0f;
-							float ycoord = (data[3] * 2.0f) - 1.0f;
-							float zcoord = 1.0f - xcoord * xcoord - ycoord * ycoord;
-							if (zcoord < 0.0f)
-							{
-								zcoord = 0.0f;
-							}
-							data[ASTCENC_SWZ_Z] = (astc::sqrt(zcoord) * 0.5f) + 0.5f;
+							vfloat data_x = (data_r * vfloat(2.0f)) - vfloat(1.0f);
+							vfloat data_y = (data_a * vfloat(2.0f)) - vfloat(1.0f);
+							vfloat data_z = vfloat(1.0f) - (data_x * data_x) - (data_y * data_y);
+							data_z = max(data_z, 0.0f);
+							data_z = (sqrt(data_z) * vfloat(0.5f)) + vfloat(0.5f);
+
+							swizzle_table[ASTCENC_SWZ_Z] = float_to_int_rtn(min(data_z, 1.0f) * 255.0f);
 						}
 
-						vfloat4 color = vfloat4(data[swz.r], data[swz.g], data[swz.b], data[swz.a]);
-						colori = float_to_int_rtn(min(color, 1.0f) * 255.0f);
+						data_ri = swizzle_table[swz.r];
+						data_gi = swizzle_table[swz.g];
+						data_bi = swizzle_table[swz.b];
+						data_ai = swizzle_table[swz.a];
 					}
-					else
+
+					// Errors are NaN encoded - convert to magenta error color
+					// Branch is OK here - it is almost never true so predicts well
+					vmask nan_mask = data_r != data_r;
+					if (any(nan_mask))
 					{
-						vfloat4 color = blk.texel(idx);
-						colori = float_to_int_rtn(min(color, 1.0f) * 255.0f);
+						data_ri = select(data_ri, vint(0xFF), nan_mask);
+						data_gi = select(data_gi, vint(0x00), nan_mask);
+						data_bi = select(data_bi, vint(0xFF), nan_mask);
+						data_ai = select(data_ai, vint(0xFF), nan_mask);
 					}
 
-					colori = pack_low_bytes(colori);
-					store_nbytes(colori, data8 + (4 * xsize * y) + (4 * x    ));
+					vint data_rgbai = interleave_rgba8(data_ri, data_gi, data_bi, data_ai);
+					vmask store_mask = vint::lane_id() < vint(used_texels);
+					store_lanes_masked(reinterpret_cast<int*>(data8_row), data_rgbai, store_mask);
 
-					idx++;
+					data8_row += ASTCENC_SIMD_WIDTH * 4;
+					idx += used_texels;
 				}
 				idx += x_nudge;
 			}
@@ -366,16 +452,18 @@ void write_image_block(
 
 			for (unsigned int y = y_start; y < y_end; y++)
 			{
-				for (unsigned int x = x_start; x < x_end; x++)
+				uint16_t* data16_row = data16 + (4 * x_size * y) + (4 * x_start);
+
+				for (unsigned int x = 0; x < x_count; x++)
 				{
 					vint4 color;
 
-					if (blk.data_r[idx] == std::numeric_limits<float>::quiet_NaN())
+					// NaNs are handled inline - no need to special case
+					if (needs_swz)
 					{
-						color = vint4(0xFFFF);
-					}
-					else if (needs_swz)
-					{
+						float data[7];
+						data[ASTCENC_SWZ_0] = 0.0f;
+						data[ASTCENC_SWZ_1] = 1.0f;
 						data[ASTCENC_SWZ_R] = blk.data_r[idx];
 						data[ASTCENC_SWZ_G] = blk.data_g[idx];
 						data[ASTCENC_SWZ_B] = blk.data_b[idx];
@@ -402,11 +490,12 @@ void write_image_block(
 						color = float_to_float16(colorf);
 					}
 
-					data16[(4 * xsize * y) + (4 * x    )] = (uint16_t)color.lane<0>();
-					data16[(4 * xsize * y) + (4 * x + 1)] = (uint16_t)color.lane<1>();
-					data16[(4 * xsize * y) + (4 * x + 2)] = (uint16_t)color.lane<2>();
-					data16[(4 * xsize * y) + (4 * x + 3)] = (uint16_t)color.lane<3>();
-
+					// TODO: Vectorize with store N shorts?
+					data16_row[0] = static_cast<uint16_t>(color.lane<0>());
+					data16_row[1] = static_cast<uint16_t>(color.lane<1>());
+					data16_row[2] = static_cast<uint16_t>(color.lane<2>());
+					data16_row[3] = static_cast<uint16_t>(color.lane<3>());
+					data16_row += 4;
 					idx++;
 				}
 				idx += x_nudge;
@@ -425,16 +514,18 @@ void write_image_block(
 
 			for (unsigned int y = y_start; y < y_end; y++)
 			{
-				for (unsigned int x = x_start; x < x_end; x++)
+				float* data32_row = data32 + (4 * x_size * y) + (4 * x_start);
+
+				for (unsigned int x = 0; x < x_count; x++)
 				{
 					vfloat4 color = blk.texel(idx);
 
-					if (color.lane<0>() == std::numeric_limits<float>::quiet_NaN())
+					// NaNs are handled inline - no need to special case
+					if (needs_swz)
 					{
-						color = vfloat4(std::numeric_limits<float>::quiet_NaN());
-					}
-					else if (needs_swz)
-					{
+						float data[7];
+						data[ASTCENC_SWZ_0] = 0.0f;
+						data[ASTCENC_SWZ_1] = 1.0f;
 						data[ASTCENC_SWZ_R] = color.lane<0>();
 						data[ASTCENC_SWZ_G] = color.lane<1>();
 						data[ASTCENC_SWZ_B] = color.lane<2>();
@@ -455,8 +546,8 @@ void write_image_block(
 						color = vfloat4(data[swz.r], data[swz.g], data[swz.b], data[swz.a]);
 					}
 
-					store(color, data32 + (4 * xsize * y) + (4 * x    ));
-
+					store(color, data32_row);
+					data32_row += 4;
 					idx++;
 				}
 				idx += x_nudge;

@@ -52,10 +52,13 @@
   typedef unsigned short mode_t;
 #endif
 
+#if defined(__MINGW32__)
+    #define S_IFSOCK 0xC000
+#endif
+
 #define KTX_FILE_STREAM_MAX (1 << (sizeof(ktx_off_t) - 1) - 1)
 
 /**
- * @internal
  * @~English
  * @brief Read bytes from a ktxFileStream.
  *
@@ -68,6 +71,7 @@
  * @return      KTX_SUCCESS on success, other KTX_* enum values on error.
  *
  * @exception KTX_INVALID_VALUE @p dst is @c NULL or @p src is @c NULL.
+ * @exception KTX_FILE_READ_ERROR  an error occurred while reading the file.
  * @exception KTX_FILE_UNEXPECTED_EOF not enough data to satisfy the request.
  */
 static
@@ -83,8 +87,9 @@ KTX_error_code ktxFileStream_read(ktxStream* str, void* dst, const ktx_size_t co
     if ((nread = fread(dst, 1, count, str->data.file)) != count) {
         if (feof(str->data.file)) {
             return KTX_FILE_UNEXPECTED_EOF;
-        } else
+        } else {
             return KTX_FILE_READ_ERROR;
+        }
     }
     str->readpos += count;
 
@@ -92,7 +97,6 @@ KTX_error_code ktxFileStream_read(ktxStream* str, void* dst, const ktx_size_t co
 }
 
 /**
- * @internal
  * @~English
  * @brief Skip bytes in a ktxFileStream.
  *
@@ -106,6 +110,7 @@ KTX_error_code ktxFileStream_read(ktxStream* str, void* dst, const ktx_size_t co
  *
  * @exception KTX_INVALID_VALUE @p str is @c NULL or @p count is less than zero.
  * @exception KTX_INVALID_OPERATION skipping @p count bytes would go beyond EOF.
+ * @exception KTX_FILE_READ_ERROR  an error occurred while reading the file.
  * @exception KTX_FILE_UNEXPECTED_EOF not enough data to satisfy the request.
  *                                    @p count is set to the number of bytes
  *                                    skipped.
@@ -121,19 +126,19 @@ KTX_error_code ktxFileStream_skip(ktxStream* str, const ktx_size_t count)
     for (ktx_uint32_t i = 0; i < count; i++) {
         int ret = getc(str->data.file);
         if (ret == EOF) {
-            if (feof(str->data.file))
+            if (feof(str->data.file)) {
                 return KTX_FILE_UNEXPECTED_EOF;
-            else
+            } else {
                 return KTX_FILE_READ_ERROR;
+            }
         }
     }
-   str->readpos += count;
+    str->readpos += count;
 
     return KTX_SUCCESS;
 }
 
 /**
- * @internal
  * @~English
  * @brief Write bytes to a ktxFileStream.
  *
@@ -174,7 +179,6 @@ KTX_error_code ktxFileStream_write(ktxStream* str, const void *src,
 }
 
 /**
- * @internal
  * @~English
  * @brief Get the current read/write position in a ktxFileStream.
  *
@@ -219,13 +223,12 @@ KTX_error_code ktxFileStream_getpos(ktxStream* str, ktx_off_t* pos)
 }
 
 /**
- * @internal
  * @~English
  * @brief Set the current read/write position in a ktxFileStream.
  *
  * Offset of 0 is the start of the file. This function operates
  * like Linux > 3.1's @c lseek() when it is passed a @c whence
- * of @c SEEK_DATA is it returns and error if the seek would
+ * of @c SEEK_DATA as it returns an error if the seek would
  * go beyond the end of the file.
  *
  * @param [in] str    pointer to the ktxStream whose r/w position is to be set.
@@ -275,7 +278,6 @@ KTX_error_code ktxFileStream_setpos(ktxStream* str, ktx_off_t pos)
 }
 
 /**
- * @internal
  * @~English
  * @brief Get the size of a ktxFileStream in bytes.
  *
@@ -308,11 +310,14 @@ KTX_error_code ktxFileStream_getsize(ktxStream* str, ktx_size_t* size)
     // Need to flush so that fstat will return the current size.
     // Can ignore return value. The only error that can happen is to tell you
     // it was a NOP because the file is read only.
-#if defined(_MSC_VER) && _MSC_VER < 1900
-    // Bug in VS2013 msvcrt. fflush on FILE open for READ changes file offset to 4096.
+#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(__MINGW64__) && !defined(_UCRT)
+    // Bug in VS2013 msvcrt. fflush on FILE open for READ changes file offset
+    // to 4096.
     if (str->data.file->_flag & _IOWRT)
-#endif
+        (void)fflush(str->data.file);
+#else
     (void)fflush(str->data.file);
+#endif
     statret = fstat(fileno(str->data.file), &statbuf);
     if (statret < 0) {
         switch (errno) {
@@ -336,12 +341,13 @@ KTX_error_code ktxFileStream_getsize(ktxStream* str, ktx_size_t* size)
 }
 
 /**
- * @internal
  * @~English
  * @brief Initialize a ktxFileStream.
  *
  * @param [in] str      pointer to the ktxStream to initialize.
  * @param [in] file     pointer to the underlying FILE object.
+ * @param [in] closeFileOnDestruct if not false, stdio file pointer will be closed when ktxStream
+ *             is destructed.
  *
  * @return      KTX_SUCCESS on success, KTX_INVALID_VALUE on error.
  *
@@ -369,7 +375,6 @@ KTX_error_code ktxFileStream_construct(ktxStream* str, FILE* file,
 }
 
 /**
- * @internal
  * @~English
  * @brief Destruct the stream, potentially closing the underlying FILE.
  *
